@@ -35,17 +35,10 @@ logger = logging.getLogger(__name__)
     ADMIN_REJECT_REASON,
 ) = range(7)
 
+HTML = ParseMode.HTML
+
 
 # ── Helpers ──────────────────────────────────────────────────
-
-def escape_md(text: str) -> str:
-    """Escape special Markdown v1 characters in dynamic/user-supplied text."""
-    if not text:
-        return text
-    for ch in ('_', '*', '`', '['):
-        text = text.replace(ch, f'\\{ch}')
-    return str(text)
-
 
 def gen_order_id():
     return "LCU_" + "".join(random.choices(string.digits, k=10))
@@ -100,29 +93,26 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     db.upsert_user(u.id, u.username or "", u.full_name)
     text = (
-        f"🎉 *Welcome to {escape_md(config.BOT_NAME)}!*\n\n"
-        f"👤 User ID: `{u.id}`\n\n"
-        f"💳 *Payment Method:* UPI QR Code & Manual UPI\n"
-        f"🆔 *Our UPI ID:* `{escape_md(config.UPI_ID)}`\n\n"
-        f"🔗 *Available Commands:*\n"
-        f"🛍 /buy – Purchase subscription\n"
-        f"📋 /plans – View available plans\n"
-        f"📱 /myplan – Check your subscriptions\n"
-        f"🔗 /invites – Get group & channel invite links\n"
-        f"🔍 /status – Check payment status\n\n"
-        f"🔧 *How it works:*\n"
+        f"🎉 <b>Welcome to {config.BOT_NAME}!</b>\n\n"
+        f"👤 User ID: <code>{u.id}</code>\n\n"
+        f"💳 <b>Payment Method:</b> UPI QR Code and Manual UPI\n"
+        f"🆔 <b>Our UPI ID:</b> <code>{config.UPI_ID}</code>\n\n"
+        f"🔗 <b>Available Commands:</b>\n"
+        f"🛍 /buy - Purchase subscription\n"
+        f"📋 /plans - View available plans\n"
+        f"📱 /myplan - Check your subscriptions\n"
+        f"🔗 /invites - Get group and channel invite links\n"
+        f"🔍 /status - Check payment status\n\n"
+        f"🔧 <b>How it works:</b>\n"
         f"1️⃣ Choose a plan (/buy)\n"
         f"2️⃣ Get QR code or manual UPI details\n"
         f"3️⃣ Make payment with order ID in note\n"
         f"4️⃣ Send payment screenshot\n"
         f"5️⃣ Get instant activation on approval\n"
-        f"6️⃣ Use /invites to access groups & channels\n\n"
-        f"📞 Admin Support: {escape_md(config.SUPPORT_USERNAME)}"
+        f"6️⃣ Use /invites to access groups and channels\n\n"
+        f"📞 Admin Support: {config.SUPPORT_USERNAME}"
     )
-    await update.message.reply_text(
-        text, parse_mode=ParseMode.MARKDOWN,
-        reply_markup=main_kb(u.id)
-    )
+    await update.message.reply_text(text, parse_mode=HTML, reply_markup=main_kb(u.id))
 
 
 async def cmd_plans(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -130,21 +120,18 @@ async def cmd_plans(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not plans:
         await update.message.reply_text("❌ No plans available right now.")
         return
-    text = "📋 *Available Plans:*\n\n"
+    text = "📋 <b>Available Plans:</b>\n\n"
     for p in plans:
         text += (
-            f"⭐ *{escape_md(p['name'])}*\n"
-            f"   📦 Category: {escape_md(p['category'])}\n"
+            f"⭐ <b>{p['name']}</b>\n"
+            f"   📦 Category: {p['category']}\n"
             f"   ⏱ Duration: {p['duration']} days\n"
             f"   💰 Price: ₹{p['price']:.0f}\n"
-            f"   🔧 Services: {escape_md(p['services'])}\n\n"
+            f"   🔧 Services: {p['services']}\n\n"
         )
-    kb = [[InlineKeyboardButton(f"🛍 Buy {p['name']} – ₹{p['price']:.0f}", callback_data=f"buy_{p['id']}")]
+    kb = [[InlineKeyboardButton(f"🛍 Buy {p['name']} - ₹{p['price']:.0f}", callback_data=f"buy_{p['id']}")]
           for p in plans]
-    await update.message.reply_text(
-        text, parse_mode=ParseMode.MARKDOWN,
-        reply_markup=InlineKeyboardMarkup(kb)
-    )
+    await update.message.reply_text(text, parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb))
 
 
 async def cmd_buy(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -153,12 +140,12 @@ async def cmd_buy(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ No plans available right now.")
         return ConversationHandler.END
     kb = [[InlineKeyboardButton(
-        f"📦 {p['name']} – ₹{p['price']:.0f} / {p['duration']}d",
+        f"📦 {p['name']} - ₹{p['price']:.0f} / {p['duration']}d",
         callback_data=f"buy_{p['id']}"
     )] for p in plans]
     await update.message.reply_text(
-        "🛍 *Choose a subscription plan:*",
-        parse_mode=ParseMode.MARKDOWN,
+        "🛍 <b>Choose a subscription plan:</b>",
+        parse_mode=HTML,
         reply_markup=InlineKeyboardMarkup(kb)
     )
     return SELECTING_PLAN
@@ -179,15 +166,15 @@ async def cb_buy_plan(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["plan"] = plan
 
     text = (
-        f"🛍 *Your Order Details:*\n\n"
-        f"📦 Category: {escape_md(plan['category'])}\n"
-        f"📋 Plan: {escape_md(plan['name'])}\n"
+        f"🛍 <b>Your Order Details:</b>\n\n"
+        f"📦 Category: {plan['category']}\n"
+        f"📋 Plan: {plan['name']}\n"
         f"⏱ Duration: {plan['duration']} days\n"
         f"💰 Amount: ₹{plan['price']:.1f}\n"
-        f"🆔 Order ID: `{order_id}`\n\n"
-        f"💳 *Choose Your Payment Method:*\n\n"
-        f"📱 *QR Code* – Scan with any UPI app\n"
-        f"🚀 *UPI Apps* – Quick payment with native apps\n\n"
+        f"🆔 Order ID: <code>{order_id}</code>\n\n"
+        f"💳 <b>Choose Your Payment Method:</b>\n\n"
+        f"📱 <b>QR Code</b> - Scan with any UPI app\n"
+        f"🚀 <b>UPI Apps</b> - Quick payment with native apps\n\n"
         f"📸 Or send payment screenshot if already paid"
     )
     kb = [
@@ -195,10 +182,7 @@ async def cb_buy_plan(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🚀 Pay with UPI Apps",       callback_data="pay_upi")],
         [InlineKeyboardButton("📸 Send Payment Screenshot", callback_data="pay_ss")],
     ]
-    await query.message.reply_text(
-        text, parse_mode=ParseMode.MARKDOWN,
-        reply_markup=InlineKeyboardMarkup(kb)
-    )
+    await query.message.reply_text(text, parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb))
     return SELECTING_PAYMENT
 
 
@@ -213,18 +197,15 @@ async def cb_pay_qr(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
     qr_img = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={upi_url}"
     caption = (
-        f"📱 *Scan QR Code to Pay*\n\n"
+        f"📱 <b>Scan QR Code to Pay</b>\n\n"
         f"💰 Amount: ₹{plan.get('price', 0):.0f}\n"
-        f"🆔 Order ID: `{order_id}`\n\n"
-        f"⚠️ Add order ID `{order_id}` in payment note!\n\n"
+        f"🆔 Order ID: <code>{order_id}</code>\n\n"
+        f"⚠️ Add order ID <code>{order_id}</code> in payment note!\n\n"
         f"After payment, send screenshot below 👇"
     )
     kb = [[InlineKeyboardButton("📸 Send Payment Screenshot", callback_data="pay_ss")]]
-    await query.message.reply_photo(
-        qr_img, caption=caption,
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=InlineKeyboardMarkup(kb)
-    )
+    await query.message.reply_photo(qr_img, caption=caption, parse_mode=HTML,
+                                    reply_markup=InlineKeyboardMarkup(kb))
     db.update_order_payment(order_id, "qr")
     return WAITING_SCREENSHOT
 
@@ -235,22 +216,19 @@ async def cb_pay_upi(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     order_id = ctx.user_data.get("order_id", "N/A")
     plan = ctx.user_data.get("plan", {})
     text = (
-        f"🚀 *Manual UPI Payment*\n\n"
-        f"🆔 UPI ID: `{escape_md(config.UPI_ID)}`\n"
-        f"👤 Name: {escape_md(config.UPI_NAME)}\n"
+        f"🚀 <b>Manual UPI Payment</b>\n\n"
+        f"🆔 UPI ID: <code>{config.UPI_ID}</code>\n"
+        f"👤 Name: {config.UPI_NAME}\n"
         f"💰 Amount: ₹{plan.get('price', 0):.0f}\n\n"
-        f"📝 *Add this in payment note/remark:*\n"
-        f"`{order_id}`\n\n"
+        f"📝 <b>Add this in payment note/remark:</b>\n"
+        f"<code>{order_id}</code>\n\n"
         f"After payment, enter transaction ID or send screenshot 👇"
     )
     kb = [
         [InlineKeyboardButton("🔢 Enter Transaction ID", callback_data="pay_txnid")],
         [InlineKeyboardButton("📸 Send Screenshot",      callback_data="pay_ss")],
     ]
-    await query.message.reply_text(
-        text, parse_mode=ParseMode.MARKDOWN,
-        reply_markup=InlineKeyboardMarkup(kb)
-    )
+    await query.message.reply_text(text, parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb))
     db.update_order_payment(order_id, "upi")
     return SELECTING_PAYMENT
 
@@ -259,9 +237,9 @@ async def cb_pay_ss(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.message.reply_text(
-        "📸 *Send your payment screenshot now:*\n\n"
+        "📸 <b>Send your payment screenshot now:</b>\n\n"
         "Our team will verify and activate your subscription shortly.",
-        parse_mode=ParseMode.MARKDOWN
+        parse_mode=HTML
     )
     return WAITING_SCREENSHOT
 
@@ -270,8 +248,8 @@ async def cb_pay_txnid(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.message.reply_text(
-        "🔢 *Enter your UPI Transaction ID:*\n\nExample: `317812345678`",
-        parse_mode=ParseMode.MARKDOWN
+        "🔢 <b>Enter your UPI Transaction ID:</b>\n\nExample: <code>317812345678</code>",
+        parse_mode=HTML
     )
     return WAITING_TXN_ID
 
@@ -283,11 +261,11 @@ async def receive_txn_id(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     db.update_order_payment(order_id, "upi", txn_id=txn_id)
     await update.message.reply_text(
-        f"✅ *Transaction ID received!*\n\n"
-        f"🔢 TXN ID: `{escape_md(txn_id)}`\n"
-        f"🆔 Order ID: `{order_id}`\n\n"
-        f"⏳ Verification in progress. You'll be notified once approved.",
-        parse_mode=ParseMode.MARKDOWN
+        f"✅ <b>Transaction ID received!</b>\n\n"
+        f"🔢 TXN ID: <code>{txn_id}</code>\n"
+        f"🆔 Order ID: <code>{order_id}</code>\n\n"
+        f"⏳ Verification in progress. You will be notified once approved.",
+        parse_mode=HTML
     )
     for admin_id in config.ADMIN_IDS:
         try:
@@ -297,13 +275,13 @@ async def receive_txn_id(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             ]]
             await ctx.bot.send_message(
                 admin_id,
-                f"🔔 *New Payment – TXN ID*\n\n"
-                f"👤 User: [{escape_md(u.full_name)}](tg://user?id={u.id}) (`{u.id}`)\n"
-                f"📋 Plan: {escape_md(plan.get('name', ''))}\n"
+                f"🔔 <b>New Payment - TXN ID</b>\n\n"
+                f"👤 User: <a href='tg://user?id={u.id}'>{u.full_name}</a> (<code>{u.id}</code>)\n"
+                f"📋 Plan: {plan.get('name')}\n"
                 f"💰 Amount: ₹{plan.get('price', 0):.0f}\n"
-                f"🆔 Order: `{order_id}`\n"
-                f"🔢 TXN ID: `{escape_md(txn_id)}`",
-                parse_mode=ParseMode.MARKDOWN,
+                f"🆔 Order: <code>{order_id}</code>\n"
+                f"🔢 TXN ID: <code>{txn_id}</code>",
+                parse_mode=HTML,
                 reply_markup=InlineKeyboardMarkup(kb)
             )
         except Exception as e:
@@ -323,20 +301,20 @@ async def receive_screenshot(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     file_id = photo[-1].file_id if photo else doc.file_id
     db.update_order_payment(order_id, "screenshot", screenshot=file_id)
     await update.message.reply_text(
-        f"📸 *Screenshot received!*\n\n"
-        f"🆔 Order ID: `{order_id}`\n"
+        f"📸 <b>Screenshot received!</b>\n\n"
+        f"🆔 Order ID: <code>{order_id}</code>\n"
         f"⏳ Admin will verify and activate shortly.\n\n"
-        f"📞 Support: {escape_md(config.SUPPORT_USERNAME)}",
-        parse_mode=ParseMode.MARKDOWN
+        f"📞 Support: {config.SUPPORT_USERNAME}",
+        parse_mode=HTML
     )
     for admin_id in config.ADMIN_IDS:
         try:
             cap = (
-                f"🔔 *New Payment Screenshot*\n\n"
-                f"👤 User: [{escape_md(u.full_name)}](tg://user?id={u.id}) (`{u.id}`)\n"
-                f"📋 Plan: {escape_md(plan.get('name', ''))}\n"
+                f"🔔 <b>New Payment Screenshot</b>\n\n"
+                f"👤 User: <a href='tg://user?id={u.id}'>{u.full_name}</a> (<code>{u.id}</code>)\n"
+                f"📋 Plan: {plan.get('name')}\n"
                 f"💰 Amount: ₹{plan.get('price', 0):.0f}\n"
-                f"🆔 Order: `{order_id}`"
+                f"🆔 Order: <code>{order_id}</code>"
             )
             kb = [[
                 InlineKeyboardButton("✅ Approve", callback_data=f"adm_approve_{order_id}"),
@@ -344,12 +322,10 @@ async def receive_screenshot(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             ]]
             if photo:
                 await ctx.bot.send_photo(admin_id, file_id, caption=cap,
-                                         parse_mode=ParseMode.MARKDOWN,
-                                         reply_markup=InlineKeyboardMarkup(kb))
+                                         parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb))
             else:
                 await ctx.bot.send_document(admin_id, file_id, caption=cap,
-                                            parse_mode=ParseMode.MARKDOWN,
-                                            reply_markup=InlineKeyboardMarkup(kb))
+                                            parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb))
         except Exception as e:
             logger.warning(f"Admin notify failed: {e}")
     return ConversationHandler.END
@@ -359,22 +335,22 @@ async def cmd_myplan(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     subs = db.get_user_subscriptions(update.effective_user.id)
     if not subs:
         await update.message.reply_text(
-            "📋 *Your Subscriptions:*\n\n❌ No active subscriptions.\n\nUse /buy to purchase one!",
-            parse_mode=ParseMode.MARKDOWN
+            "📋 <b>Your Subscriptions:</b>\n\n❌ No active subscriptions.\n\nUse /buy to purchase one!",
+            parse_mode=HTML
         )
         return
-    text = "📋 *Your Subscriptions:*\n\n"
+    text = "📋 <b>Your Subscriptions:</b>\n\n"
     for s in subs:
         exp = datetime.fromisoformat(s["expires_at"])
         text += (
-            f"🔗 *{escape_md(s['plan_name'])}* – 🟢 Active\n"
-            f"   📝 Category: {escape_md(s['category'])}\n"
-            f"   🔧 Service: {escape_md(s['services'])}\n"
+            f"🔗 <b>{s['plan_name']}</b> - 🟢 Active\n"
+            f"   📝 Category: {s['category']}\n"
+            f"   🔧 Service: {s['services']}\n"
             f"   📅 Current Purchase: {s['duration']} days\n"
             f"   ⏰ Expiry: {exp.strftime('%d-%m-%Y %H:%M')} IST\n"
             f"   ⌛ Remaining: {remaining_text(s['expires_at'])}\n\n"
         )
-    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(text, parse_mode=HTML)
 
 
 async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -384,17 +360,17 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "You don't have any orders from the last 7 days.\n\n🛍 Use /buy to create a new order"
         )
         return
-    text = "🔍 *Recent Orders:*\n\n"
+    text = "🔍 <b>Recent Orders:</b>\n\n"
     for o in orders:
         emoji = {"pending": "⏳", "approved": "✅", "rejected": "❌"}.get(o["status"], "❓")
         text += (
-            f"{emoji} *{escape_md(o['plan_name'])}*\n"
-            f"   🆔 Order: `{o['order_id']}`\n"
+            f"{emoji} <b>{o['plan_name']}</b>\n"
+            f"   🆔 Order: <code>{o['order_id']}</code>\n"
             f"   💰 Amount: ₹{o['amount']:.0f}\n"
             f"   📅 Date: {o['created_at'][:10]}\n"
             f"   Status: {o['status'].upper()}\n\n"
         )
-    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(text, parse_mode=HTML)
 
 
 async def cmd_invites(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -405,12 +381,12 @@ async def cmd_invites(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
         return
     text = (
-        f"🔗 *Your Invite Links:*\n\n"
-        f"📢 Updates Channel: {escape_md(config.CHANNEL_USERNAME)}\n\n"
-        f"📞 Support: {escape_md(config.SUPPORT_USERNAME)}\n\n"
-        f"_Links valid for your subscription period._"
+        f"🔗 <b>Your Invite Links:</b>\n\n"
+        f"📢 Updates Channel: {config.CHANNEL_USERNAME}\n\n"
+        f"📞 Support: {config.SUPPORT_USERNAME}\n\n"
+        f"<i>Links valid for your subscription period.</i>"
     )
-    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(text, parse_mode=HTML)
 
 
 # ════════════════════════════════════════════════════════════
@@ -422,8 +398,8 @@ async def cmd_admin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⛔ Admins only!")
         return
     await update.message.reply_text(
-        "⚙️ *Admin Panel*\n\nChoose an option:",
-        parse_mode=ParseMode.MARKDOWN,
+        "⚙️ <b>Admin Panel</b>\n\nChoose an option:",
+        parse_mode=HTML,
         reply_markup=admin_panel_kb()
     )
 
@@ -431,17 +407,17 @@ async def cmd_admin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def show_stats(query):
     stats = db.get_stats()
     text = (
-        f"📊 *Bot Statistics*\n\n"
-        f"👥 Total Users:   `{stats['total_users']}`\n"
-        f"🧾 Total Orders:  `{stats['total_orders']}`\n"
-        f"⏳ Pending:       `{stats['pending']}`\n"
-        f"✅ Approved:      `{stats['approved']}`\n"
-        f"❌ Rejected:      `{stats['rejected']}`\n"
-        f"📋 Active Subs:   `{stats['active_subs']}`\n"
-        f"💰 Total Revenue: `₹{stats['revenue']:.0f}`\n"
+        f"📊 <b>Bot Statistics</b>\n\n"
+        f"👥 Total Users:   <code>{stats['total_users']}</code>\n"
+        f"🧾 Total Orders:  <code>{stats['total_orders']}</code>\n"
+        f"⏳ Pending:       <code>{stats['pending']}</code>\n"
+        f"✅ Approved:      <code>{stats['approved']}</code>\n"
+        f"❌ Rejected:      <code>{stats['rejected']}</code>\n"
+        f"📋 Active Subs:   <code>{stats['active_subs']}</code>\n"
+        f"💰 Total Revenue: <code>₹{stats['revenue']:.0f}</code>\n"
     )
     await query.message.reply_text(
-        text, parse_mode=ParseMode.MARKDOWN,
+        text, parse_mode=HTML,
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("🔙 Back to Panel", callback_data="adm_back")
         ]])
@@ -452,22 +428,22 @@ async def show_pending(query, ctx):
     orders = db.get_pending_orders()
     if not orders:
         await query.message.reply_text(
-            "✅ *No pending orders!*",
-            parse_mode=ParseMode.MARKDOWN,
+            "✅ <b>No pending orders!</b>",
+            parse_mode=HTML,
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("🔙 Back to Panel", callback_data="adm_back")
             ]])
         )
         return
-    await query.message.reply_text(f"⏳ *{len(orders)} Pending Order(s):*", parse_mode=ParseMode.MARKDOWN)
+    await query.message.reply_text(f"⏳ <b>{len(orders)} Pending Order(s):</b>", parse_mode=HTML)
     for o in orders:
         text = (
-            f"⏳ *Pending Order*\n\n"
-            f"👤 User: [{escape_md(o['full_name'])}](tg://user?id={o['user_id']}) (`{o['user_id']}`)\n"
-            f"📋 Plan: {escape_md(o['plan_name'])}\n"
+            f"⏳ <b>Pending Order</b>\n\n"
+            f"👤 User: <a href='tg://user?id={o['user_id']}'>{o['full_name']}</a> (<code>{o['user_id']}</code>)\n"
+            f"📋 Plan: {o['plan_name']}\n"
             f"💰 Amount: ₹{o['amount']:.0f}\n"
-            f"💳 Method: {escape_md(o['payment_method'] or '—')}\n"
-            f"🆔 Order: `{o['order_id']}`\n"
+            f"💳 Method: {o['payment_method'] or 'not set'}\n"
+            f"🆔 Order: <code>{o['order_id']}</code>\n"
             f"📅 Date: {o['created_at'][:16]}"
         )
         kb = [[
@@ -477,14 +453,12 @@ async def show_pending(query, ctx):
         if o.get("screenshot_file"):
             await ctx.bot.send_photo(
                 query.from_user.id, o["screenshot_file"],
-                caption=text, parse_mode=ParseMode.MARKDOWN,
+                caption=text, parse_mode=HTML,
                 reply_markup=InlineKeyboardMarkup(kb)
             )
         else:
-            await query.message.reply_text(
-                text, parse_mode=ParseMode.MARKDOWN,
-                reply_markup=InlineKeyboardMarkup(kb)
-            )
+            await query.message.reply_text(text, parse_mode=HTML,
+                                           reply_markup=InlineKeyboardMarkup(kb))
 
 
 async def show_orders(query):
@@ -492,16 +466,16 @@ async def show_orders(query):
     if not orders:
         await query.message.reply_text("🧾 No orders yet.")
         return
-    text = "🧾 *Recent Orders (last 15):*\n\n"
+    text = "🧾 <b>Recent Orders (last 15):</b>\n\n"
     for o in orders:
         emoji = {"pending": "⏳", "approved": "✅", "rejected": "❌"}.get(o["status"], "❓")
         text += (
-            f"{emoji} `{o['order_id']}`\n"
-            f"   👤 {escape_md(o['full_name'])} | 📋 {escape_md(o['plan_name'])}\n"
+            f"{emoji} <code>{o['order_id']}</code>\n"
+            f"   👤 {o['full_name']} | 📋 {o['plan_name']}\n"
             f"   💰 ₹{o['amount']:.0f} | 📅 {o['created_at'][:10]}\n\n"
         )
     await query.message.reply_text(
-        text, parse_mode=ParseMode.MARKDOWN,
+        text, parse_mode=HTML,
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("🔙 Back to Panel", callback_data="adm_back")
         ]])
@@ -510,14 +484,14 @@ async def show_orders(query):
 
 async def show_users(query):
     users = db.get_all_users()
-    text = f"👥 *All Users: {len(users)}*\n\n"
+    text = f"👥 <b>All Users: {len(users)}</b>\n\n"
     for u in users[:20]:
-        uname = f"@{escape_md(u['username'])}" if u["username"] else "—"
-        text += f"• `{u['user_id']}` {escape_md(u['full_name'])} {uname}\n"
+        uname = f"@{u['username']}" if u["username"] else ""
+        text += f"• <code>{u['user_id']}</code> {u['full_name']} {uname}\n"
     if len(users) > 20:
-        text += f"\n_…and {len(users) - 20} more_"
+        text += f"\n<i>...and {len(users) - 20} more</i>"
     await query.message.reply_text(
-        text, parse_mode=ParseMode.MARKDOWN,
+        text, parse_mode=HTML,
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("🔙 Back to Panel", callback_data="adm_back")
         ]])
@@ -529,16 +503,16 @@ async def show_subs(query):
     if not subs:
         await query.message.reply_text("📋 No active subscriptions.")
         return
-    text = f"🔔 *Active Subscriptions: {len(subs)}*\n\n"
+    text = f"🔔 <b>Active Subscriptions: {len(subs)}</b>\n\n"
     for s in subs[:15]:
         text += (
-            f"• *{escape_md(s['plan_name'])}* – {escape_md(s['full_name'])}\n"
+            f"• <b>{s['plan_name']}</b> - {s['full_name']}\n"
             f"   ⏰ {s['expires_at'][:16]} | ⌛ {remaining_text(s['expires_at'])}\n\n"
         )
     if len(subs) > 15:
-        text += f"_…and {len(subs) - 15} more_"
+        text += f"<i>...and {len(subs) - 15} more</i>"
     await query.message.reply_text(
-        text, parse_mode=ParseMode.MARKDOWN,
+        text, parse_mode=HTML,
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("🔙 Back to Panel", callback_data="adm_back")
         ]])
@@ -547,26 +521,22 @@ async def show_subs(query):
 
 async def show_plans(query):
     plans = db.get_plans(active_only=False)
-    text = "📦 *Plans Management:*\n\n"
+    text = "📦 <b>Plans Management:</b>\n\n"
     for p in plans:
         status = "🟢" if p["is_active"] else "🔴"
-        text += f"{status} *{escape_md(p['name'])}* – ₹{p['price']:.0f} / {p['duration']}d\n"
+        text += f"{status} <b>{p['name']}</b> - ₹{p['price']:.0f} / {p['duration']}d\n"
     kb = []
     for p in plans:
-        row = [
+        kb.append([
             InlineKeyboardButton(
                 f"{'🔴 Disable' if p['is_active'] else '🟢 Enable'} {p['name']}",
                 callback_data=f"adm_toggle_{p['id']}"
             ),
-            InlineKeyboardButton(f"🗑", callback_data=f"adm_delplan_{p['id']}"),
-        ]
-        kb.append(row)
-    kb.append([InlineKeyboardButton("➕ Add New Plan", callback_data="adm_addplan")])
+            InlineKeyboardButton("🗑 Delete", callback_data=f"adm_delplan_{p['id']}"),
+        ])
+    kb.append([InlineKeyboardButton("➕ Add New Plan",   callback_data="adm_addplan")])
     kb.append([InlineKeyboardButton("🔙 Back to Panel", callback_data="adm_back")])
-    await query.message.reply_text(
-        text, parse_mode=ParseMode.MARKDOWN,
-        reply_markup=InlineKeyboardMarkup(kb)
-    )
+    await query.message.reply_text(text, parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb))
 
 
 # ── Add plan conversation ─────────────────────────────────────
@@ -575,13 +545,13 @@ async def adm_addplan_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.message.reply_text(
-        "➕ *Add New Plan*\n\n"
-        "Send plan details in this exact format:\n\n"
-        "`Name | Category | Duration(days) | Price | Services`\n\n"
+        "➕ <b>Add New Plan</b>\n\n"
+        "Send plan details in this format:\n\n"
+        "<code>Name | Category | Duration(days) | Price | Services</code>\n\n"
         "Example:\n"
-        "`ProBot | Bot Hosting | 30 | 499 | fb,autoleech`\n\n"
+        "<code>ProBot | Bot Hosting | 30 | 499 | fb,autoleech</code>\n\n"
         "Send /cancel to cancel.",
-        parse_mode=ParseMode.MARKDOWN
+        parse_mode=HTML
     )
     return ADMIN_ADD_PLAN
 
@@ -592,20 +562,20 @@ async def adm_addplan_receive(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     parts = [p.strip() for p in update.message.text.split("|")]
     if len(parts) != 5:
         await update.message.reply_text(
-            "❌ Invalid format. Use:\n`Name | Category | Duration | Price | Services`",
-            parse_mode=ParseMode.MARKDOWN
+            "❌ Invalid format. Use:\n<code>Name | Category | Duration | Price | Services</code>",
+            parse_mode=HTML
         )
         return ADMIN_ADD_PLAN
     try:
         name, category, duration, price, services = parts
         db.add_plan(name, category, int(duration), float(price), "", services)
         await update.message.reply_text(
-            f"✅ *Plan '{escape_md(name)}' added successfully!*\n\n"
-            f"📦 Category: {escape_md(category)}\n"
+            f"✅ <b>Plan '{name}' added!</b>\n\n"
+            f"📦 Category: {category}\n"
             f"⏱ Duration: {duration} days\n"
             f"💰 Price: ₹{price}\n"
-            f"🔧 Services: {escape_md(services)}",
-            parse_mode=ParseMode.MARKDOWN,
+            f"🔧 Services: {services}",
+            parse_mode=HTML,
             reply_markup=main_kb(update.effective_user.id)
         )
     except Exception as e:
@@ -620,10 +590,10 @@ async def adm_broadcast_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.message.reply_text(
-        "📢 *Broadcast Message*\n\n"
+        "📢 <b>Broadcast Message</b>\n\n"
         "Send the message to broadcast to ALL users.\n\n"
         "Send /cancel to cancel.",
-        parse_mode=ParseMode.MARKDOWN
+        parse_mode=HTML
     )
     return ADMIN_BROADCAST
 
@@ -636,17 +606,13 @@ async def adm_broadcast_send(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     sent = failed = 0
     for u in users:
         try:
-            await ctx.bot.send_message(
-                u["user_id"],
-                f"📢 *Announcement*\n\n{msg}",
-                parse_mode=ParseMode.MARKDOWN
-            )
+            await ctx.bot.send_message(u["user_id"], f"📢 <b>Announcement</b>\n\n{msg}", parse_mode=HTML)
             sent += 1
         except:
             failed += 1
     await update.message.reply_text(
-        f"📢 *Broadcast Complete!*\n\n✅ Sent: {sent}\n❌ Failed: {failed}\n👥 Total: {len(users)}",
-        parse_mode=ParseMode.MARKDOWN,
+        f"📢 <b>Broadcast Complete!</b>\n\n✅ Sent: {sent}\n❌ Failed: {failed}\n👥 Total: {len(users)}",
+        parse_mode=HTML,
         reply_markup=main_kb(update.effective_user.id)
     )
     return ConversationHandler.END
@@ -663,8 +629,9 @@ async def adm_reject_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     order_id = "_".join(query.data.split("_")[2:])
     ctx.user_data["rejecting_order"] = order_id
     await query.message.reply_text(
-        f"❌ Rejecting order `{order_id}`\n\nSend reason (or /skip to reject without reason):",
-        parse_mode=ParseMode.MARKDOWN
+        f"❌ Rejecting order <code>{order_id}</code>\n\n"
+        f"Send reason, or send /skip to reject without reason:",
+        parse_mode=HTML
     )
     return ADMIN_REJECT_REASON
 
@@ -680,25 +647,25 @@ async def adm_reject_do(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     db.reject_order(order_id, update.effective_user.id, reason)
     await update.message.reply_text(
-        f"❌ Order `{order_id}` rejected.",
-        parse_mode=ParseMode.MARKDOWN,
+        f"❌ Order <code>{order_id}</code> rejected.",
+        parse_mode=HTML,
         reply_markup=main_kb(update.effective_user.id)
     )
     try:
-        reason_text = f"\n📝 Reason: {escape_md(reason)}" if reason else ""
+        reason_text = f"\n📝 Reason: {reason}" if reason else ""
         await ctx.bot.send_message(
             order["user_id"],
-            f"❌ *Payment Rejected*\n\n"
-            f"🆔 Order: `{order_id}`{reason_text}\n\n"
-            f"Please contact {escape_md(config.SUPPORT_USERNAME)} for help.",
-            parse_mode=ParseMode.MARKDOWN
+            f"❌ <b>Payment Rejected</b>\n\n"
+            f"🆔 Order: <code>{order_id}</code>{reason_text}\n\n"
+            f"Please contact {config.SUPPORT_USERNAME} for help.",
+            parse_mode=HTML
         )
     except Exception as e:
         logger.warning(f"User notify failed: {e}")
     return ConversationHandler.END
 
 
-# ── Approve handler ───────────────────────────────────────────
+# ── Approve ───────────────────────────────────────────────────
 
 async def adm_approve(query, ctx, order_id):
     if not is_admin(query.from_user.id):
@@ -716,20 +683,20 @@ async def adm_approve(query, ctx, order_id):
     expires = db.activate_subscription(order["user_id"], order["plan_id"], order_id, plan["duration"])
     await query.answer("✅ Approved!", show_alert=True)
     await query.message.reply_text(
-        f"✅ Order `{order_id}` *approved!*\n"
-        f"Active till `{expires.strftime('%d-%m-%Y %H:%M')}` IST",
-        parse_mode=ParseMode.MARKDOWN
+        f"✅ Order <code>{order_id}</code> <b>approved!</b>\n"
+        f"Active till <code>{expires.strftime('%d-%m-%Y %H:%M')}</code> IST",
+        parse_mode=HTML
     )
     try:
         await ctx.bot.send_message(
             order["user_id"],
-            f"✅ *Subscription Activated!*\n\n"
-            f"📋 Plan: *{escape_md(plan['name'])}*\n"
+            f"✅ <b>Subscription Activated!</b>\n\n"
+            f"📋 Plan: <b>{plan['name']}</b>\n"
             f"⏰ Expires: {expires.strftime('%d-%m-%Y %H:%M')} IST\n"
             f"⌛ Duration: {plan['duration']} days\n\n"
             f"🔗 Use /invites to get your access links!\n"
-            f"📞 Support: {escape_md(config.SUPPORT_USERNAME)}",
-            parse_mode=ParseMode.MARKDOWN
+            f"📞 Support: {config.SUPPORT_USERNAME}",
+            parse_mode=HTML
         )
     except Exception as e:
         logger.warning(f"User notify failed: {e}")
@@ -749,7 +716,7 @@ async def callback_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if data == "adm_back":
         await query.message.reply_text(
-            "⚙️ *Admin Panel*", parse_mode=ParseMode.MARKDOWN,
+            "⚙️ <b>Admin Panel</b>", parse_mode=HTML,
             reply_markup=admin_panel_kb()
         )
     elif data == "adm_stats":
@@ -780,7 +747,7 @@ async def callback_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("adm_approve_"):
         order_id = "_".join(data.split("_")[2:])
         await adm_approve(query, ctx, order_id)
-    # adm_reject_ is handled by its own ConversationHandler
+    # adm_reject_ handled by reject_conv ConversationHandler
 
 
 # ── Text shortcuts ────────────────────────────────────────────
@@ -803,9 +770,7 @@ async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data.clear()
-    await update.message.reply_text(
-        "❌ Cancelled.", reply_markup=main_kb(update.effective_user.id)
-    )
+    await update.message.reply_text("❌ Cancelled.", reply_markup=main_kb(update.effective_user.id))
     return ConversationHandler.END
 
 
@@ -816,12 +781,12 @@ async def check_expiry(ctx: ContextTypes.DEFAULT_TYPE):
         try:
             await ctx.bot.send_message(
                 s["user_id"],
-                f"⚠️ *Subscription Expiring Soon!*\n\n"
-                f"Your subscription for *{escape_md(s['plan_name'])}* will expire in "
+                f"⚠️ <b>Subscription Expiring Soon!</b>\n\n"
+                f"Your subscription for <b>{s['plan_name']}</b> will expire in "
                 f"{remaining_text(s['expires_at'])}\n\n"
                 f"📅 Expiry: {s['expires_at'][:16]} IST\n\n"
                 f"🛒 Renew now to continue enjoying the service!",
-                parse_mode=ParseMode.MARKDOWN,
+                parse_mode=HTML,
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("🛒 Renew Subscription", callback_data=f"buy_{s['plan_id']}")
                 ]])
@@ -833,10 +798,10 @@ async def check_expiry(ctx: ContextTypes.DEFAULT_TYPE):
         try:
             await ctx.bot.send_message(
                 e["user_id"],
-                f"❌ *Subscription Expired*\n\n"
-                f"Your subscription for *{escape_md(e['plan_name'])}* has expired.\n\n"
+                f"❌ <b>Subscription Expired</b>\n\n"
+                f"Your subscription for <b>{e['plan_name']}</b> has expired.\n\n"
                 f"🛒 Renew now to continue using the service!",
-                parse_mode=ParseMode.MARKDOWN,
+                parse_mode=HTML,
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("🛒 Renew Now", callback_data=f"buy_{e['plan_id']}")
                 ]])
@@ -851,7 +816,6 @@ def main():
     db.init_db()
     app = Application.builder().token(config.BOT_TOKEN).build()
 
-    # Buy conversation
     buy_conv = ConversationHandler(
         entry_points=[
             CommandHandler("buy", cmd_buy),
@@ -874,48 +838,36 @@ def main():
             ],
         },
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
-        per_chat=True,
-        per_user=True,
         per_message=False,
     )
 
-    # Add plan conversation
     addplan_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(adm_addplan_start, pattern="^adm_addplan$")],
         states={
             ADMIN_ADD_PLAN: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_addplan_receive)],
         },
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
-        per_chat=True,
-        per_user=True,
         per_message=False,
     )
 
-    # Broadcast conversation
     broadcast_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(adm_broadcast_start, pattern="^adm_broadcast$")],
         states={
             ADMIN_BROADCAST: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_broadcast_send)],
         },
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
-        per_chat=True,
-        per_user=True,
         per_message=False,
     )
 
-    # Reject reason conversation
     reject_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(adm_reject_start, pattern=r"^adm_reject_")],
         states={
             ADMIN_REJECT_REASON: [MessageHandler(filters.TEXT, adm_reject_do)],
         },
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
-        per_chat=True,
-        per_user=True,
         per_message=False,
     )
 
-    # Register in correct order (conversations first)
     app.add_handler(buy_conv)
     app.add_handler(addplan_conv)
     app.add_handler(broadcast_conv)
@@ -932,7 +884,6 @@ def main():
     app.add_handler(CallbackQueryHandler(callback_router))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    # Run expiry check every 30 minutes
     app.job_queue.run_repeating(check_expiry, interval=1800, first=60)
 
     logger.info("🤖 Bot started!")
