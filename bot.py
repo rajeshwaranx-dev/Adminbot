@@ -940,6 +940,8 @@ def main():
             ],
         },
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
+        per_chat=True,
+        per_user=True,
         per_message=False,
     )
 
@@ -949,6 +951,8 @@ def main():
             ADMIN_ADD_PLAN: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_addplan_receive)],
         },
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
+        per_chat=True,
+        per_user=True,
         per_message=False,
     )
 
@@ -958,6 +962,8 @@ def main():
             ADMIN_BROADCAST: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_broadcast_send)],
         },
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
+        per_chat=True,
+        per_user=True,
         per_message=False,
     )
 
@@ -967,6 +973,8 @@ def main():
             ADMIN_REJECT_REASON: [MessageHandler(filters.TEXT, adm_reject_do)],
         },
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
+        per_chat=True,
+        per_user=True,
         per_message=False,
     )
 
@@ -976,6 +984,8 @@ def main():
             ADMIN_ADDUSER_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, cmd_adduser_receive)],
         },
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
+        per_chat=True,
+        per_user=True,
         per_message=False,
     )
 
@@ -997,4 +1007,11 @@ def main():
     app.add_handler(CallbackQueryHandler(callback_router))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    app.j
+    app.job_queue.run_repeating(check_expiry, interval=1800, first=60)
+
+    logger.info("🤖 Bot started!")
+    app.run_polling()
+
+
+if __name__ == "__main__":
+    main()
