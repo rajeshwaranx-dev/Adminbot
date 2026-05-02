@@ -836,8 +836,10 @@ async def cmd_adduser(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         text += f"{i}. {p['name']} - ₹{p['price']:.0f} / {p['duration']}d\n"
     text += (
         "\nExample:\n"
-        "<code>7246154050 | 2 | 30 | @MyAwesomeBot</code>\n\n"
-        "📝 BOT_NAME = the Telegram bot username the user purchased hosting for.\n\n"
+        "<code>5102717153 | 1 | 30 | Autopost, Filestore, Autofilter</code>\n\n"
+        "📝 <b>BOT_NAME</b> = bot(s) the user purchased hosting for.\n"
+        "   Can include multiple names with commas.\n\n"
+        "⚠️ Only use <b>|</b> to separate the first 3 fields!\n\n"
         "Send /cancel to cancel."
     )
     ctx.user_data["adduser_plans"] = plans
@@ -848,12 +850,14 @@ async def cmd_adduser(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def cmd_adduser_receive(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return ConversationHandler.END
-    parts = [p.strip() for p in update.message.text.split("|")]
-    if len(parts) != 4:
+    # Split on | with max 4 parts so bot_name can contain commas freely
+    parts = [p.strip() for p in update.message.text.split("|", 3)]
+    if len(parts) < 3:
         await update.message.reply_text(
             "❌ Invalid format. Use:\n"
             "<code>USER_ID | PLAN_NUMBER | DURATION_DAYS | BOT_NAME</code>\n\n"
-            "Example: <code>7246154050 | 2 | 30 | @MyAwesomeBot</code>",
+            "Example: <code>5102717153 | 1 | 30 | Autopost, Filestore, Autofilter</code>\n\n"
+            "💡 BOT_NAME can contain commas. Just separate the first 3 fields with |",
             parse_mode=HTML
         )
         return ADMIN_ADDUSER_DETAILS
@@ -861,7 +865,7 @@ async def cmd_adduser_receive(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         user_id   = int(parts[0])
         plan_num  = int(parts[1])
         duration  = int(parts[2])
-        bot_name  = parts[3]
+        bot_name  = parts[3].strip() if len(parts) == 4 else "—"
         plans = ctx.user_data.get("adduser_plans", db.get_plans())
         if plan_num < 1 or plan_num > len(plans):
             await update.message.reply_text(f"❌ Plan number must be between 1 and {len(plans)}.")
@@ -1007,11 +1011,3 @@ def main():
     app.add_handler(CallbackQueryHandler(callback_router))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    app.job_queue.run_repeating(check_expiry, interval=1800, first=60)
-
-    logger.info("🤖 Bot started!")
-    app.run_polling()
-
-
-if __name__ == "__main__":
-    main()
