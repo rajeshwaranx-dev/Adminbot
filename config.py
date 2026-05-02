@@ -14,7 +14,7 @@ DASHBOARD_PASSWORD = "admin123"            # Change this!
 SECRET_KEY = "change-this-secret-key"
 
 # Bot settings
-BOT_NAME = "LCU Subscription Bot"
+BOT_NAME = "Ask Subscription Bot"
 SUPPORT_USERNAME = "@Master_xkid"
 CHANNEL_USERNAME = "@yourchannel"
 
