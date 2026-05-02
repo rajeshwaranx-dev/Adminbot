@@ -178,38 +178,29 @@ async def cb_pay_upi(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     amount = plan.get("price", 0)
     links = _make_upi_links(config.UPI_ID, config.UPI_NAME, amount, order_id)
 
-    # Send UPI app buttons — each opens the app directly
-    # Telegram allows url= on InlineKeyboardButton for https links only
-    # So we send deep links as message text (tappable on Android/iOS)
+    # Telegram does NOT allow upi://, gpay://, phonepe:// in button URLs.
+    # Solution: send deep links as plain text — Android/iOS renders them tappable.
     text = (
         f"🚀 <b>Pay with UPI Apps</b>\n\n"
         f"💰 Amount: <b>₹{amount}</b>\n"
-        f"🆔 Order: <code>{order_id}</code>\n"
-        f"🆔 UPI ID: <code>{config.UPI_ID}</code>\n\n"
-        f"Tap an app button below to pay directly 👇\n\n"
-        f"⚠️ If app doesn't open, use QR or copy UPI ID manually."
+        f"🆔 Order ID: <code>{order_id}</code>\n"
+        f"🏦 UPI ID: <code>{config.UPI_ID}</code>\n\n"
+        f"<b>Tap a link below to open the app directly:</b>\n\n"
+        f"▪️ <a href=\"{links['gpay']}\">Google Pay</a>\n"
+        f"▪️ <a href=\"{links['phonepe']}\">PhonePe</a>\n"
+        f"▪️ <a href=\"{links['paytm']}\">Paytm</a>\n"
+        f"▪️ <a href=\"{links['amazon']}\">Amazon Pay</a>\n"
+        f"▪️ <a href=\"{links['bhim']}\">BHIM UPI</a>\n"
+        f"▪️ <a href=\"{links['any']}\">Any Other UPI App</a>\n\n"
+        f"⚠️ Add <code>{order_id}</code> in payment note!\n\n"
+        f"✅ After paying, tap the button below to send screenshot:"
     )
-
-    # Use url= with intent scheme wrapped via redirects that work in Telegram
-    # Best working method: send as inline buttons with upi:// url
-    # Telegram on Android opens upi:// links from message text — send as text links
-    kb = [
-        [
-            InlineKeyboardButton("G Pay",     url=links["gpay"]),
-            InlineKeyboardButton("PhonePe",   url=links["phonepe"]),
-        ],
-        [
-            InlineKeyboardButton("Paytm",     url=links["paytm"]),
-            InlineKeyboardButton("Amazon Pay",url=links["amazon"]),
-        ],
-        [
-            InlineKeyboardButton("BHIM",      url=links["bhim"]),
-            InlineKeyboardButton("Any UPI App", url=links["any"]),
-        ],
-        [InlineKeyboardButton("📸 I've Paid – Send Screenshot", callback_data="pay_ss")],
-    ]
+    kb = [[InlineKeyboardButton("📸 I've Paid – Send Screenshot", callback_data="pay_ss")]]
     await query.message.reply_text(
-        text, parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb))
+        text, parse_mode=HTML,
+        reply_markup=InlineKeyboardMarkup(kb),
+        disable_web_page_preview=True
+    )
     db.update_order_payment(order_id, "upi")
     return WAITING_SCREENSHOT
 
@@ -277,4 +268,4 @@ async def receive_screenshot(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             logger.warning(f"Admin notify failed: {e}")
 
     return ConversationHandler.END
-                              
+    
