@@ -139,9 +139,10 @@ async def cb_inline_plan(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"🆔 Order ID: <code>{order_id}</code>\n\n"
         f"💳 <b>Choose Your Payment Method:</b>"
     )
+    pay_url = f"https://askpayments.vercel.app/?order={order_id}&amount={plan['price']}&name={plan['name'].replace(' ', '%20')}&upi={config.UPI_ID}"
     kb = [
         [InlineKeyboardButton("📱 Pay with QR Code",        callback_data="pay_qr")],
-        [InlineKeyboardButton("🚀 Pay with UPI Apps",       callback_data="pay_upi")],
+        [InlineKeyboardButton("🚀 Pay with UPI Apps",       url=pay_url)],
         [InlineKeyboardButton("📸 Send Payment Screenshot", callback_data="pay_ss")],
     ]
     await query.message.reply_text(
