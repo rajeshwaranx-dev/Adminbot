@@ -63,29 +63,18 @@ def init_db():
     );
     """)
 
-    # Migrate: add bot_name column if it doesn't exist yet (safe for existing DBs)
+    # Migration: add bot_name if missing
     try:
         c.execute("ALTER TABLE subscriptions ADD COLUMN bot_name TEXT DEFAULT ''")
         conn.commit()
     except Exception:
-        pass  # Column already exists
-
-    c.execute("SELECT COUNT(*) FROM plans")
-    if c.fetchone()[0] == 0:
-        c.executemany(
-            "INSERT INTO plans (name,category,duration,price,description,services,is_active) VALUES (?,?,?,?,?,?,?)",
-            [
-                ("BasicBot",       "Bot Hosting Subscription", 30, 199.0, "Basic bot hosting", "autoleech", 1),
-                ("MasterTGxfb2al", "Bot Hosting Subscription", 30, 350.0, "Master plan with FB & autoleech", "fb,fb,autoleech", 1),
-                ("ProBot",         "Bot Hosting Subscription", 60, 599.0, "Pro plan all features", "fb,autoleech,premium", 1),
-            ]
-        )
+        pass
 
     conn.commit()
     conn.close()
 
 
-# ── Users ──────────────────────────────────────────────────────
+# ── Users ────────────────────────────────────────────────────
 
 def upsert_user(user_id, username, full_name):
     conn = get_conn()
@@ -105,11 +94,11 @@ def get_all_users():
     return [dict(r) for r in rows]
 
 
-# ── Plans ───────────────────────────────────────────────────────
+# ── Plans ─────────────────────────────────────────────────────
 
 def get_plans(active_only=True):
     conn = get_conn()
-    q = "SELECT * FROM plans" + (" WHERE is_active=1" if active_only else "") + " ORDER BY price"
+    q = "SELECT * FROM plans" + (" WHERE is_active=1" if active_only else "") + " ORDER BY category, price"
     rows = conn.execute(q).fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -146,7 +135,7 @@ def delete_plan(plan_id):
     conn.close()
 
 
-# ── Orders ──────────────────────────────────────────────────────
+# ── Orders ────────────────────────────────────────────────────
 
 def create_order(order_id, user_id, plan_id, amount):
     conn = get_conn()
@@ -237,7 +226,7 @@ def get_user_orders(user_id):
     return [dict(r) for r in rows]
 
 
-# ── Subscriptions ────────────────────────────────────────────────
+# ── Subscriptions ─────────────────────────────────────────────
 
 def activate_subscription(user_id, plan_id, order_id, duration_days, bot_name=""):
     now = datetime.utcnow()
@@ -315,7 +304,7 @@ def expire_subscriptions():
     return [dict(r) for r in rows]
 
 
-# ── Stats ────────────────────────────────────────────────────────
+# ── Stats ─────────────────────────────────────────────────────
 
 def get_stats():
     conn = get_conn()
