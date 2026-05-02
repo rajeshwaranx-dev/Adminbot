@@ -14,16 +14,16 @@ import config
 import database as db
 from utils import remaining_text, HTML
 
-from handlers.buy import (
+from buy import (
     cmd_buy, cb_category, cb_buy_back, cb_inline_plan,
     cb_pay_qr, cb_pay_upi, cb_pay_ss, cb_copy_upi,
     receive_screenshot,
     SELECTING_CATEGORY, SELECTING_PLAN, SELECTING_PAYMENT, WAITING_SCREENSHOT,
 )
-from handlers.user import (
+from user import (
     cmd_start, cmd_myplan, cmd_status, cmd_invites, cmd_cancel,
 )
-from handlers.admin import (
+from admin import (
     cmd_admin, callback_router,
     adm_addplan_start, adm_addplan_receive,
     adm_broadcast_start, adm_broadcast_send,
@@ -172,4 +172,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-                                  
+    
