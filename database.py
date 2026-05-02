@@ -56,11 +56,19 @@ def init_db():
         user_id     INTEGER NOT NULL,
         plan_id     INTEGER NOT NULL,
         order_id    TEXT NOT NULL,
+        bot_name    TEXT DEFAULT '',
         started_at  TEXT NOT NULL,
         expires_at  TEXT NOT NULL,
         is_active   INTEGER DEFAULT 1
     );
     """)
+
+    # Migrate: add bot_name column if it doesn't exist yet (safe for existing DBs)
+    try:
+        c.execute("ALTER TABLE subscriptions ADD COLUMN bot_name TEXT DEFAULT ''")
+        conn.commit()
+    except Exception:
+        pass  # Column already exists
 
     c.execute("SELECT COUNT(*) FROM plans")
     if c.fetchone()[0] == 0:
@@ -231,7 +239,7 @@ def get_user_orders(user_id):
 
 # ── Subscriptions ────────────────────────────────────────────────
 
-def activate_subscription(user_id, plan_id, order_id, duration_days):
+def activate_subscription(user_id, plan_id, order_id, duration_days, bot_name=""):
     now = datetime.utcnow()
     expires = now + timedelta(days=duration_days)
     conn = get_conn()
@@ -240,8 +248,8 @@ def activate_subscription(user_id, plan_id, order_id, duration_days):
         (user_id, plan_id)
     )
     conn.execute(
-        "INSERT INTO subscriptions (user_id,plan_id,order_id,started_at,expires_at) VALUES (?,?,?,?,?)",
-        (user_id, plan_id, order_id, now.isoformat(), expires.isoformat())
+        "INSERT INTO subscriptions (user_id,plan_id,order_id,bot_name,started_at,expires_at) VALUES (?,?,?,?,?,?)",
+        (user_id, plan_id, order_id, bot_name, now.isoformat(), expires.isoformat())
     )
     conn.commit()
     conn.close()
