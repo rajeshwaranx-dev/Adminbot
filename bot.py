@@ -1,6 +1,6 @@
 """
-bot.py – Telegram Subscription Bot + Inline Admin Dashboard
-Run: python bot.py
+bot.py – Ask Subscription Bot + Inline Admin Dashboard
+Run: python3 bot.py
 """
 import logging
 import random
@@ -24,8 +24,10 @@ import database as db
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ── Conversation states ──────────────────────────────────────
+HTML = ParseMode.HTML
+
 (
+    SELECTING_CATEGORY,
     SELECTING_PLAN,
     SELECTING_PAYMENT,
     WAITING_SCREENSHOT,
@@ -34,15 +36,48 @@ logger = logging.getLogger(__name__)
     ADMIN_BROADCAST,
     ADMIN_REJECT_REASON,
     ADMIN_ADDUSER_DETAILS,
-) = range(8)
+) = range(9)
 
-HTML = ParseMode.HTML
+# ── Category / Plan data ─────────────────────────────────────
+
+CATEGORIES = {
+    "cat_botsub": "🤖 Bot Subscription",
+    "cat_leech":  "📥 Leech Group Subscription",
+    "cat_hosting":"🖥 Bot Hosting Subscription",
+    "cat_addon":  "📢 Addon Channel Subscription",
+}
+
+BOT_PLANS = [
+    {"id": "bp_autopost",    "name": "Auto Post Bot",       "price": 150, "duration": 30},
+    {"id": "bp_filestore",   "name": "File Store Bot",      "price": 50,  "duration": 30},
+    {"id": "bp_autofilter",  "name": "Auto Filter Bot",     "price": 80,  "duration": 30},
+    {"id": "bp_leech",       "name": "Leech Bot",           "price": 150, "duration": 30},
+    {"id": "bp_rss",         "name": "Rss Bot",             "price": 50,  "duration": 30},
+    {"id": "bp_forward",     "name": "Forward Bot",         "price": 50,  "duration": 30},
+    {"id": "bp_autocaption", "name": "Auto Caption Bot",    "price": 50,  "duration": 30},
+]
+
+LEECH_PLANS = [
+    {"id": "lp_basic", "name": "Ask Leech Group Plan",     "price": 50,  "duration": 30},
+    {"id": "lp_pro",   "name": "Ask Leech Group Pro Plan", "price": 80,  "duration": 30},
+]
+
+ADDON_PLANS = [
+    {"id": "ap_tmv_7",  "name": "Tmv Links Channel – 7 days",  "price": 5,  "duration": 7},
+    {"id": "ap_tmv_15", "name": "Tmv Links Channel – 15 days", "price": 10, "duration": 15},
+    {"id": "ap_tmv_30", "name": "Tmv Links Channel – 30 days", "price": 15, "duration": 30},
+    {"id": "ap_tbl_7",  "name": "Tbl Links Channel – 7 days",  "price": 5,  "duration": 7},
+    {"id": "ap_tbl_15", "name": "Tbl Links Channel – 15 days", "price": 10, "duration": 15},
+    {"id": "ap_tbl_30", "name": "Tbl Links Channel – 30 days", "price": 15, "duration": 30},
+]
+
+ALL_INLINE_PLANS = {p["id"]: p for p in BOT_PLANS + LEECH_PLANS + ADDON_PLANS}
 
 
 # ── Helpers ──────────────────────────────────────────────────
 
 def gen_order_id():
-    return "LCU_" + "".join(random.choices(string.digits, k=10))
+    return "ASK_" + "".join(random.choices(string.digits, k=10))
 
 
 def remaining_text(expires_at: str) -> str:
@@ -80,7 +115,7 @@ def admin_panel_kb():
          InlineKeyboardButton("⏳ Pending Orders", callback_data="adm_pending")],
         [InlineKeyboardButton("🧾 All Orders",     callback_data="adm_orders"),
          InlineKeyboardButton("👥 Users",          callback_data="adm_users")],
-        [InlineKeyboardButton("📦 Plans",          callback_data="adm_plans"),
+        [InlineKeyboardButton("📦 DB Plans",       callback_data="adm_plans"),
          InlineKeyboardButton("📢 Broadcast",      callback_data="adm_broadcast")],
         [InlineKeyboardButton("🔔 Active Subs",    callback_data="adm_subs")],
     ])
@@ -99,84 +134,133 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"💳 <b>Payment Method:</b> UPI QR Code and Manual UPI\n"
         f"🆔 <b>Our UPI ID:</b> <code>{config.UPI_ID}</code>\n\n"
         f"🔗 <b>Available Commands:</b>\n"
-        f"🛍 /buy - Purchase subscription\n"
-        f"📋 /plans - View available plans\n"
-        f"📱 /myplan - Check your subscriptions\n"
-        f"🔗 /invites - Get group and channel invite links\n"
-        f"🔍 /status - Check payment status\n\n"
+        f"🛍 /buy – Purchase subscription\n"
+        f"📋 /myplan – Check your subscriptions\n"
+        f"🔗 /invites – Get group and channel invite links\n"
+        f"🔍 /status – Check payment status\n\n"
         f"🔧 <b>How it works:</b>\n"
-        f"1️⃣ Choose a plan (/buy)\n"
+        f"1️⃣ Choose a category and plan (/buy)\n"
         f"2️⃣ Get QR code or manual UPI details\n"
         f"3️⃣ Make payment with order ID in note\n"
         f"4️⃣ Send payment screenshot\n"
-        f"5️⃣ Get instant activation on approval\n"
-        f"6️⃣ Use /invites to access groups and channels\n\n"
+        f"5️⃣ Get instant activation on approval\n\n"
         f"📞 Admin Support: {config.SUPPORT_USERNAME}"
     )
     await update.message.reply_text(text, parse_mode=HTML, reply_markup=main_kb(u.id))
 
 
-async def cmd_plans(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    plans = db.get_plans()
-    if not plans:
-        await update.message.reply_text("❌ No plans available right now.")
-        return
-    text = "📋 <b>Available Plans:</b>\n\n"
-    for p in plans:
-        text += (
-            f"⭐ <b>{p['name']}</b>\n"
-            f"   📦 Category: {p['category']}\n"
-            f"   ⏱ Duration: {p['duration']} days\n"
-            f"   💰 Price: ₹{p['price']:.0f}\n"
-            f"   🔧 Services: {p['services']}\n\n"
-        )
-    kb = [[InlineKeyboardButton(f"🛍 Buy {p['name']} - ₹{p['price']:.0f}", callback_data=f"buy_{p['id']}")]
-          for p in plans]
-    await update.message.reply_text(text, parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb))
-
-
 async def cmd_buy(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    plans = db.get_plans()
-    if not plans:
-        await update.message.reply_text("❌ No plans available right now.")
-        return ConversationHandler.END
-    kb = [[InlineKeyboardButton(
-        f"📦 {p['name']} - ₹{p['price']:.0f} / {p['duration']}d",
-        callback_data=f"buy_{p['id']}"
-    )] for p in plans]
+    kb = [
+        [InlineKeyboardButton("🤖 Bot Subscription",        callback_data="cat_botsub")],
+        [InlineKeyboardButton("📥 Leech Group Subscription", callback_data="cat_leech")],
+        [InlineKeyboardButton("🖥 Bot Hosting Subscription", callback_data="cat_hosting")],
+        [InlineKeyboardButton("📢 Addon Channel Subscription", callback_data="cat_addon")],
+    ]
     await update.message.reply_text(
-        "🛍 <b>Choose a subscription plan:</b>",
+        "🛒 <b>Select subscription category:</b>",
         parse_mode=HTML,
         reply_markup=InlineKeyboardMarkup(kb)
     )
+    return SELECTING_CATEGORY
+
+
+async def cb_category(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    cat = query.data
+
+    if cat == "cat_botsub":
+        kb = [[InlineKeyboardButton(f"📋 {p['name']} – ₹{p['price']}", callback_data=f"iplan_{p['id']}")]
+              for p in BOT_PLANS]
+        kb.append([InlineKeyboardButton("🔙 Back", callback_data="buy_back")])
+        await query.message.reply_text(
+            "🤖 <b>Available plans in Bot Subscription:</b>",
+            parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb)
+        )
+
+    elif cat == "cat_leech":
+        kb = [[InlineKeyboardButton(f"📋 {p['name']} – ₹{p['price']}", callback_data=f"iplan_{p['id']}")]
+              for p in LEECH_PLANS]
+        kb.append([InlineKeyboardButton("🔙 Back", callback_data="buy_back")])
+        await query.message.reply_text(
+            "📥 <b>Available plans in Leech Group Subscription:</b>",
+            parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb)
+        )
+
+    elif cat == "cat_hosting":
+        kb = [[InlineKeyboardButton(f"📩 Contact {config.SUPPORT_USERNAME}", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}")]]
+        kb.append([InlineKeyboardButton("🔙 Back", callback_data="buy_back")])
+        await query.message.reply_text(
+            "🖥 <b>Bot Hosting Subscription</b>\n\n"
+            "💰 Price varies based on your bot requirements.\n\n"
+            "📩 Please contact admin for pricing and details:",
+            parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb)
+        )
+
+    elif cat == "cat_addon":
+        tmv_kb = [
+            [InlineKeyboardButton("📢 Tmv Links – 7d ₹5",  callback_data="iplan_ap_tmv_7")],
+            [InlineKeyboardButton("📢 Tmv Links – 15d ₹10", callback_data="iplan_ap_tmv_15")],
+            [InlineKeyboardButton("📢 Tmv Links – 30d ₹15", callback_data="iplan_ap_tmv_30")],
+            [InlineKeyboardButton("📢 Tbl Links – 7d ₹5",  callback_data="iplan_ap_tbl_7")],
+            [InlineKeyboardButton("📢 Tbl Links – 15d ₹10", callback_data="iplan_ap_tbl_15")],
+            [InlineKeyboardButton("📢 Tbl Links – 30d ₹15", callback_data="iplan_ap_tbl_30")],
+            [InlineKeyboardButton("🔙 Back", callback_data="buy_back")],
+        ]
+        await query.message.reply_text(
+            "📢 <b>Addon Channel Subscription:</b>\n\n"
+            "Choose a channel and duration:",
+            parse_mode=HTML, reply_markup=InlineKeyboardMarkup(tmv_kb)
+        )
+
     return SELECTING_PLAN
 
 
-async def cb_buy_plan(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+async def cb_buy_back(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    plan_id = int(query.data.split("_")[1])
-    plan = db.get_plan(plan_id)
+    kb = [
+        [InlineKeyboardButton("🤖 Bot Subscription",         callback_data="cat_botsub")],
+        [InlineKeyboardButton("📥 Leech Group Subscription", callback_data="cat_leech")],
+        [InlineKeyboardButton("🖥 Bot Hosting Subscription",  callback_data="cat_hosting")],
+        [InlineKeyboardButton("📢 Addon Channel Subscription", callback_data="cat_addon")],
+    ]
+    await query.message.reply_text(
+        "🛒 <b>Select subscription category:</b>",
+        parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb)
+    )
+    return SELECTING_CATEGORY
+
+
+async def cb_inline_plan(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    plan_key = query.data.replace("iplan_", "")
+    plan = ALL_INLINE_PLANS.get(plan_key)
     if not plan:
         await query.message.reply_text("❌ Plan not found.")
         return ConversationHandler.END
 
+    # Save to DB plans table if not already there
+    db_plans = db.get_plans()
+    db_plan = next((p for p in db_plans if p["name"] == plan["name"]), None)
+    if not db_plan:
+        db.add_plan(plan["name"], "Inline Plan", plan["duration"], plan["price"], "", "")
+        db_plans = db.get_plans()
+        db_plan = next((p for p in db_plans if p["name"] == plan["name"]), None)
+
     order_id = gen_order_id()
-    db.create_order(order_id, query.from_user.id, plan_id, plan["price"])
+    db.create_order(order_id, query.from_user.id, db_plan["id"], plan["price"])
     ctx.user_data["order_id"] = order_id
-    ctx.user_data["plan"] = plan
+    ctx.user_data["plan"] = {**db_plan, **plan}
 
     text = (
         f"🛍 <b>Your Order Details:</b>\n\n"
-        f"📦 Category: {plan['category']}\n"
-        f"📋 Plan: {plan['name']}\n"
+        f"📋 Plan: <b>{plan['name']}</b>\n"
         f"⏱ Duration: {plan['duration']} days\n"
-        f"💰 Amount: ₹{plan['price']:.1f}\n"
+        f"💰 Amount: ₹{plan['price']}\n"
         f"🆔 Order ID: <code>{order_id}</code>\n\n"
-        f"💳 <b>Choose Your Payment Method:</b>\n\n"
-        f"📱 <b>QR Code</b> - Scan with any UPI app\n"
-        f"🚀 <b>UPI Apps</b> - Quick payment with native apps\n\n"
-        f"📸 Or send payment screenshot if already paid"
+        f"💳 <b>Choose Your Payment Method:</b>"
     )
     kb = [
         [InlineKeyboardButton("📱 Pay with QR Code",        callback_data="pay_qr")],
@@ -199,7 +283,7 @@ async def cb_pay_qr(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     qr_img = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={upi_url}"
     caption = (
         f"📱 <b>Scan QR Code to Pay</b>\n\n"
-        f"💰 Amount: ₹{plan.get('price', 0):.0f}\n"
+        f"💰 Amount: ₹{plan.get('price', 0)}\n"
         f"🆔 Order ID: <code>{order_id}</code>\n\n"
         f"⚠️ Add order ID <code>{order_id}</code> in payment note!\n\n"
         f"After payment, send screenshot below 👇"
@@ -220,7 +304,7 @@ async def cb_pay_upi(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"🚀 <b>Manual UPI Payment</b>\n\n"
         f"🆔 UPI ID: <code>{config.UPI_ID}</code>\n"
         f"👤 Name: {config.UPI_NAME}\n"
-        f"💰 Amount: ₹{plan.get('price', 0):.0f}\n\n"
+        f"💰 Amount: ₹{plan.get('price', 0)}\n\n"
         f"📝 <b>Add this in payment note/remark:</b>\n"
         f"<code>{order_id}</code>\n\n"
         f"After payment, enter transaction ID or send screenshot 👇"
@@ -278,12 +362,11 @@ async def receive_txn_id(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 admin_id,
                 f"🔔 <b>New Payment - TXN ID</b>\n\n"
                 f"👤 User: <a href='tg://user?id={u.id}'>{u.full_name}</a> (<code>{u.id}</code>)\n"
-                f"📋 Plan: {plan.get('name')}\n"
-                f"💰 Amount: ₹{plan.get('price', 0):.0f}\n"
+                f"📋 Plan: {plan.get('name', 'N/A')}\n"
+                f"💰 Amount: ₹{plan.get('price', 0)}\n"
                 f"🆔 Order: <code>{order_id}</code>\n"
                 f"🔢 TXN ID: <code>{txn_id}</code>",
-                parse_mode=HTML,
-                reply_markup=InlineKeyboardMarkup(kb)
+                parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb)
             )
         except Exception as e:
             logger.warning(f"Admin notify failed: {e}")
@@ -313,8 +396,8 @@ async def receive_screenshot(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             cap = (
                 f"🔔 <b>New Payment Screenshot</b>\n\n"
                 f"👤 User: <a href='tg://user?id={u.id}'>{u.full_name}</a> (<code>{u.id}</code>)\n"
-                f"📋 Plan: {plan.get('name')}\n"
-                f"💰 Amount: ₹{plan.get('price', 0):.0f}\n"
+                f"📋 Plan: {plan.get('name', 'N/A')}\n"
+                f"💰 Amount: ₹{plan.get('price', 0)}\n"
                 f"🆔 Order: <code>{order_id}</code>"
             )
             kb = [[
@@ -343,13 +426,12 @@ async def cmd_myplan(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     text = "📋 <b>Your Subscriptions:</b>\n\n"
     for s in subs:
         exp = datetime.fromisoformat(s["expires_at"])
-        bot_name = s.get("bot_name", "") or ""
+        bot_name = s.get("bot_name") or "—"
         text += (
-            f"🔗 <b>{s['plan_name']}</b> - 🟢 Active\n"
-            f"   🤖 Bot Name: <b>{bot_name if bot_name else '—'}</b>\n"
+            f"🔗 <b>{s['plan_name']}</b> – 🟢 Active\n"
+            f"   🤖 Bot Name: <b>{bot_name}</b>\n"
             f"   📝 Category: {s['category']}\n"
-            f"   🔧 Service: {s['services']}\n"
-            f"   📅 Current Purchase: {s['duration']} days\n"
+            f"   📅 Duration: {s['duration']} days\n"
             f"   ⏰ Expiry: {exp.strftime('%d-%m-%Y %H:%M')} IST\n"
             f"   ⌛ Remaining: {remaining_text(s['expires_at'])}\n\n"
         )
@@ -402,8 +484,7 @@ async def cmd_admin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text(
         "⚙️ <b>Admin Panel</b>\n\nChoose an option:",
-        parse_mode=HTML,
-        reply_markup=admin_panel_kb()
+        parse_mode=HTML, reply_markup=admin_panel_kb()
     )
 
 
@@ -421,9 +502,7 @@ async def show_stats(query):
     )
     await query.message.reply_text(
         text, parse_mode=HTML,
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔙 Back to Panel", callback_data="adm_back")
-        ]])
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="adm_back")]])
     )
 
 
@@ -431,11 +510,8 @@ async def show_pending(query, ctx):
     orders = db.get_pending_orders()
     if not orders:
         await query.message.reply_text(
-            "✅ <b>No pending orders!</b>",
-            parse_mode=HTML,
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("🔙 Back to Panel", callback_data="adm_back")
-            ]])
+            "✅ <b>No pending orders!</b>", parse_mode=HTML,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="adm_back")]])
         )
         return
     await query.message.reply_text(f"⏳ <b>{len(orders)} Pending Order(s):</b>", parse_mode=HTML)
@@ -454,11 +530,9 @@ async def show_pending(query, ctx):
             InlineKeyboardButton("❌ Reject",  callback_data=f"adm_reject_{o['order_id']}"),
         ]]
         if o.get("screenshot_file"):
-            await ctx.bot.send_photo(
-                query.from_user.id, o["screenshot_file"],
-                caption=text, parse_mode=HTML,
-                reply_markup=InlineKeyboardMarkup(kb)
-            )
+            await ctx.bot.send_photo(query.from_user.id, o["screenshot_file"],
+                                     caption=text, parse_mode=HTML,
+                                     reply_markup=InlineKeyboardMarkup(kb))
         else:
             await query.message.reply_text(text, parse_mode=HTML,
                                            reply_markup=InlineKeyboardMarkup(kb))
@@ -479,9 +553,7 @@ async def show_orders(query):
         )
     await query.message.reply_text(
         text, parse_mode=HTML,
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔙 Back to Panel", callback_data="adm_back")
-        ]])
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="adm_back")]])
     )
 
 
@@ -495,9 +567,7 @@ async def show_users(query):
         text += f"\n<i>...and {len(users) - 20} more</i>"
     await query.message.reply_text(
         text, parse_mode=HTML,
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔙 Back to Panel", callback_data="adm_back")
-        ]])
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="adm_back")]])
     )
 
 
@@ -508,28 +578,28 @@ async def show_subs(query):
         return
     text = f"🔔 <b>Active Subscriptions: {len(subs)}</b>\n\n"
     for s in subs[:15]:
-        bot_name = s.get("bot_name", "") or ""
+        bot_name = s.get("bot_name") or "—"
         text += (
-            f"• <b>{s['plan_name']}</b> - {s['full_name']}\n"
-            f"   🤖 Bot: {bot_name if bot_name else '—'}\n"
+            f"• <b>{s['plan_name']}</b> – {s['full_name']}\n"
+            f"   🤖 Bot: {bot_name}\n"
             f"   ⏰ {s['expires_at'][:16]} | ⌛ {remaining_text(s['expires_at'])}\n\n"
         )
     if len(subs) > 15:
         text += f"<i>...and {len(subs) - 15} more</i>"
     await query.message.reply_text(
         text, parse_mode=HTML,
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔙 Back to Panel", callback_data="adm_back")
-        ]])
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="adm_back")]])
     )
 
 
-async def show_plans(query):
+async def show_db_plans(query):
     plans = db.get_plans(active_only=False)
-    text = "📦 <b>Plans Management:</b>\n\n"
+    text = "📦 <b>DB Plans (Admin-added):</b>\n\n"
+    if not plans:
+        text += "No plans in DB yet.\n"
     for p in plans:
         status = "🟢" if p["is_active"] else "🔴"
-        text += f"{status} <b>{p['name']}</b> - ₹{p['price']:.0f} / {p['duration']}d\n"
+        text += f"{status} <b>{p['name']}</b> – ₹{p['price']:.0f} / {p['duration']}d\n"
     kb = []
     for p in plans:
         kb.append([
@@ -537,10 +607,10 @@ async def show_plans(query):
                 f"{'🔴 Disable' if p['is_active'] else '🟢 Enable'} {p['name']}",
                 callback_data=f"adm_toggle_{p['id']}"
             ),
-            InlineKeyboardButton("🗑 Delete", callback_data=f"adm_delplan_{p['id']}"),
+            InlineKeyboardButton("🗑", callback_data=f"adm_delplan_{p['id']}"),
         ])
-    kb.append([InlineKeyboardButton("➕ Add New Plan",   callback_data="adm_addplan")])
-    kb.append([InlineKeyboardButton("🔙 Back to Panel", callback_data="adm_back")])
+    kb.append([InlineKeyboardButton("➕ Add Plan", callback_data="adm_addplan")])
+    kb.append([InlineKeyboardButton("🔙 Back",     callback_data="adm_back")])
     await query.message.reply_text(text, parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb))
 
 
@@ -551,10 +621,8 @@ async def adm_addplan_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     await query.message.reply_text(
         "➕ <b>Add New Plan</b>\n\n"
-        "Send plan details in this format:\n\n"
-        "<code>Name | Category | Duration(days) | Price | Services</code>\n\n"
-        "Example:\n"
-        "<code>ProBot | Bot Hosting | 30 | 499 | fb,autoleech</code>\n\n"
+        "Format:\n<code>Name | Category | Duration(days) | Price | Services</code>\n\n"
+        "Example:\n<code>ProBot | Bot Hosting | 30 | 499 | fb,autoleech</code>\n\n"
         "Send /cancel to cancel.",
         parse_mode=HTML
     )
@@ -575,13 +643,8 @@ async def adm_addplan_receive(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         name, category, duration, price, services = parts
         db.add_plan(name, category, int(duration), float(price), "", services)
         await update.message.reply_text(
-            f"✅ <b>Plan '{name}' added!</b>\n\n"
-            f"📦 Category: {category}\n"
-            f"⏱ Duration: {duration} days\n"
-            f"💰 Price: ₹{price}\n"
-            f"🔧 Services: {services}",
-            parse_mode=HTML,
-            reply_markup=main_kb(update.effective_user.id)
+            f"✅ <b>Plan '{name}' added!</b>",
+            parse_mode=HTML, reply_markup=main_kb(update.effective_user.id)
         )
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
@@ -595,9 +658,7 @@ async def adm_broadcast_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.message.reply_text(
-        "📢 <b>Broadcast Message</b>\n\n"
-        "Send the message to broadcast to ALL users.\n\n"
-        "Send /cancel to cancel.",
+        "📢 <b>Broadcast Message</b>\n\nSend the message to broadcast to ALL users.\n\nSend /cancel to cancel.",
         parse_mode=HTML
     )
     return ADMIN_BROADCAST
@@ -617,13 +678,12 @@ async def adm_broadcast_send(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             failed += 1
     await update.message.reply_text(
         f"📢 <b>Broadcast Complete!</b>\n\n✅ Sent: {sent}\n❌ Failed: {failed}\n👥 Total: {len(users)}",
-        parse_mode=HTML,
-        reply_markup=main_kb(update.effective_user.id)
+        parse_mode=HTML, reply_markup=main_kb(update.effective_user.id)
     )
     return ConversationHandler.END
 
 
-# ── Reject reason conversation ────────────────────────────────
+# ── Reject conversation ───────────────────────────────────────
 
 async def adm_reject_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -634,8 +694,7 @@ async def adm_reject_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     order_id = "_".join(query.data.split("_")[2:])
     ctx.user_data["rejecting_order"] = order_id
     await query.message.reply_text(
-        f"❌ Rejecting order <code>{order_id}</code>\n\n"
-        f"Send reason, or send /skip to reject without reason:",
+        f"❌ Rejecting order <code>{order_id}</code>\n\nSend reason, or /skip to reject without reason:",
         parse_mode=HTML
     )
     return ADMIN_REJECT_REASON
@@ -653,20 +712,106 @@ async def adm_reject_do(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     db.reject_order(order_id, update.effective_user.id, reason)
     await update.message.reply_text(
         f"❌ Order <code>{order_id}</code> rejected.",
-        parse_mode=HTML,
-        reply_markup=main_kb(update.effective_user.id)
+        parse_mode=HTML, reply_markup=main_kb(update.effective_user.id)
     )
     try:
         reason_text = f"\n📝 Reason: {reason}" if reason else ""
         await ctx.bot.send_message(
             order["user_id"],
-            f"❌ <b>Payment Rejected</b>\n\n"
-            f"🆔 Order: <code>{order_id}</code>{reason_text}\n\n"
+            f"❌ <b>Payment Rejected</b>\n\n🆔 Order: <code>{order_id}</code>{reason_text}\n\n"
             f"Please contact {config.SUPPORT_USERNAME} for help.",
             parse_mode=HTML
         )
     except Exception as e:
         logger.warning(f"User notify failed: {e}")
+    return ConversationHandler.END
+
+
+# ── Adduser conversation ──────────────────────────────────────
+
+async def cmd_adduser(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Admins only!")
+        return ConversationHandler.END
+    plans = db.get_plans()
+    text = (
+        "👤 <b>Add User Subscription</b>\n\n"
+        "Format:\n<code>USER_ID | PLAN_NUMBER | DURATION_DAYS | BOT_NAME</code>\n\n"
+        "Available Plans:\n"
+    )
+    for i, p in enumerate(plans, 1):
+        text += f"{i}. {p['name']} – ₹{p['price']:.0f} / {p['duration']}d\n"
+    text += (
+        "\nExample:\n"
+        "<code>5102717153 | 1 | 30 | Autopost, Filestore, Autofilter</code>\n\n"
+        "📝 BOT_NAME can contain commas. Only use | for first 3 fields.\n\n"
+        "Send /cancel to cancel."
+    )
+    ctx.user_data["adduser_plans"] = plans
+    await update.message.reply_text(text, parse_mode=HTML)
+    return ADMIN_ADDUSER_DETAILS
+
+
+async def cmd_adduser_receive(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return ConversationHandler.END
+    parts = [p.strip() for p in update.message.text.split("|", 3)]
+    if len(parts) < 3:
+        await update.message.reply_text(
+            "❌ Invalid format. Use:\n"
+            "<code>USER_ID | PLAN_NUMBER | DURATION_DAYS | BOT_NAME</code>\n\n"
+            "Example: <code>5102717153 | 1 | 30 | Autopost, Filestore, Autofilter</code>",
+            parse_mode=HTML
+        )
+        return ADMIN_ADDUSER_DETAILS
+    try:
+        user_id  = int(parts[0])
+        plan_num = int(parts[1])
+        duration = int(parts[2])
+        bot_name = parts[3].strip() if len(parts) == 4 else "—"
+        plans = ctx.user_data.get("adduser_plans") or db.get_plans()
+        if plan_num < 1 or plan_num > len(plans):
+            await update.message.reply_text(f"❌ Plan number must be 1 to {len(plans)}.")
+            return ADMIN_ADDUSER_DETAILS
+        plan = plans[plan_num - 1]
+        order_id = gen_order_id()
+        db.create_order(order_id, user_id, plan["id"], plan["price"])
+        db.approve_order(order_id, update.effective_user.id)
+        expires = db.activate_subscription(user_id, plan["id"], order_id, duration, bot_name)
+        await update.message.reply_text(
+            f"✅ <b>Subscription activated!</b>\n\n"
+            f"👤 User ID: <code>{user_id}</code>\n"
+            f"🤖 Bot Name: <b>{bot_name}</b>\n"
+            f"📋 Plan: <b>{plan['name']}</b>\n"
+            f"⏱ Duration: {duration} days\n"
+            f"⏰ Expires: {expires.strftime('%d-%m-%Y %H:%M')} IST\n"
+            f"🆔 Order: <code>{order_id}</code>",
+            parse_mode=HTML, reply_markup=main_kb(update.effective_user.id)
+        )
+        try:
+            await ctx.bot.send_message(
+                user_id,
+                f"✅ <b>Subscription Activated!</b>\n\n"
+                f"🤖 Bot Name: <b>{bot_name}</b>\n"
+                f"📋 Plan: <b>{plan['name']}</b>\n"
+                f"⏰ Expires: {expires.strftime('%d-%m-%Y %H:%M')} IST\n"
+                f"⌛ Duration: {duration} days\n\n"
+                f"📞 Support: {config.SUPPORT_USERNAME}",
+                parse_mode=HTML
+            )
+        except Exception as e:
+            logger.warning(f"Could not notify user {user_id}: {e}")
+            await update.message.reply_text(
+                f"⚠️ Activated but could not notify user <code>{user_id}</code> "
+                f"(user may not have started the bot yet).",
+                parse_mode=HTML
+            )
+    except ValueError:
+        await update.message.reply_text("❌ USER_ID, PLAN_NUMBER and DURATION must be numbers.")
+        return ADMIN_ADDUSER_DETAILS
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
+        return ADMIN_ADDUSER_DETAILS
     return ConversationHandler.END
 
 
@@ -721,8 +866,7 @@ async def callback_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if data == "adm_back":
         await query.message.reply_text(
-            "⚙️ <b>Admin Panel</b>", parse_mode=HTML,
-            reply_markup=admin_panel_kb()
+            "⚙️ <b>Admin Panel</b>", parse_mode=HTML, reply_markup=admin_panel_kb()
         )
     elif data == "adm_stats":
         await show_stats(query)
@@ -735,24 +879,23 @@ async def callback_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif data == "adm_subs":
         await show_subs(query)
     elif data == "adm_plans":
-        await show_plans(query)
+        await show_db_plans(query)
     elif data.startswith("adm_toggle_"):
         plan_id = int(data.split("_")[2])
         db.toggle_plan(plan_id)
         plan = db.get_plan(plan_id)
         status = "enabled 🟢" if plan["is_active"] else "disabled 🔴"
         await query.answer(f"Plan '{plan['name']}' {status}", show_alert=True)
-        await show_plans(query)
+        await show_db_plans(query)
     elif data.startswith("adm_delplan_"):
         plan_id = int(data.split("_")[2])
         plan = db.get_plan(plan_id)
         db.delete_plan(plan_id)
         await query.answer(f"Plan '{plan['name']}' deleted!", show_alert=True)
-        await show_plans(query)
+        await show_db_plans(query)
     elif data.startswith("adm_approve_"):
         order_id = "_".join(data.split("_")[2:])
         await adm_approve(query, ctx, order_id)
-    # adm_reject_ handled by reject_conv ConversationHandler
 
 
 # ── Text shortcuts ────────────────────────────────────────────
@@ -770,8 +913,6 @@ async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif text == "⚙️ Admin Panel":
         await cmd_admin(update, ctx)
 
-
-# ── Cancel ────────────────────────────────────────────────────
 
 async def cmd_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data.clear()
@@ -791,129 +932,21 @@ async def check_expiry(ctx: ContextTypes.DEFAULT_TYPE):
                 f"{remaining_text(s['expires_at'])}\n\n"
                 f"📅 Expiry: {s['expires_at'][:16]} IST\n\n"
                 f"🛒 Renew now to continue enjoying the service!",
-                parse_mode=HTML,
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🛒 Renew Subscription", callback_data=f"buy_{s['plan_id']}")
-                ]])
+                parse_mode=HTML
             )
         except Exception as e:
             logger.warning(f"Expiry notify failed: {e}")
-
     for e in db.expire_subscriptions():
         try:
             await ctx.bot.send_message(
                 e["user_id"],
                 f"❌ <b>Subscription Expired</b>\n\n"
                 f"Your subscription for <b>{e['plan_name']}</b> has expired.\n\n"
-                f"🛒 Renew now to continue using the service!",
-                parse_mode=HTML,
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🛒 Renew Now", callback_data=f"buy_{e['plan_id']}")
-                ]])
+                f"🛒 Use /buy to renew.",
+                parse_mode=HTML
             )
         except Exception as e2:
             logger.warning(f"Expired notify failed: {e2}")
-
-
-
-# ── /adduser (Admin: manually activate subscription) ─────────
-
-async def cmd_adduser(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        await update.message.reply_text("⛔ Admins only!")
-        return ConversationHandler.END
-    plans = db.get_plans()
-    if not plans:
-        await update.message.reply_text("❌ No plans available.")
-        return ConversationHandler.END
-    text = (
-        "👤 <b>Add User Subscription</b>\n\n"
-        "Send details in this format:\n\n"
-        "<code>USER_ID | PLAN_NUMBER | DURATION_DAYS | BOT_NAME</code>\n\n"
-        "Available Plans:\n"
-    )
-    for i, p in enumerate(plans, 1):
-        text += f"{i}. {p['name']} - ₹{p['price']:.0f} / {p['duration']}d\n"
-    text += (
-        "\nExample:\n"
-        "<code>5102717153 | 1 | 30 | Autopost, Filestore, Autofilter</code>\n\n"
-        "📝 <b>BOT_NAME</b> = bot(s) the user purchased hosting for.\n"
-        "   Can include multiple names with commas.\n\n"
-        "⚠️ Only use <b>|</b> to separate the first 3 fields!\n\n"
-        "Send /cancel to cancel."
-    )
-    ctx.user_data["adduser_plans"] = plans
-    await update.message.reply_text(text, parse_mode=HTML)
-    return ADMIN_ADDUSER_DETAILS
-
-
-async def cmd_adduser_receive(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return ConversationHandler.END
-    # Split on | with max 4 parts so bot_name can contain commas freely
-    parts = [p.strip() for p in update.message.text.split("|", 3)]
-    if len(parts) < 3:
-        await update.message.reply_text(
-            "❌ Invalid format. Use:\n"
-            "<code>USER_ID | PLAN_NUMBER | DURATION_DAYS | BOT_NAME</code>\n\n"
-            "Example: <code>5102717153 | 1 | 30 | Autopost, Filestore, Autofilter</code>\n\n"
-            "💡 BOT_NAME can contain commas. Just separate the first 3 fields with |",
-            parse_mode=HTML
-        )
-        return ADMIN_ADDUSER_DETAILS
-    try:
-        user_id   = int(parts[0])
-        plan_num  = int(parts[1])
-        duration  = int(parts[2])
-        bot_name  = parts[3].strip() if len(parts) == 4 else "—"
-        plans = ctx.user_data.get("adduser_plans", db.get_plans())
-        if plan_num < 1 or plan_num > len(plans):
-            await update.message.reply_text(f"❌ Plan number must be between 1 and {len(plans)}.")
-            return ADMIN_ADDUSER_DETAILS
-        plan = plans[plan_num - 1]
-        order_id = gen_order_id()
-        db.create_order(order_id, user_id, plan["id"], plan["price"])
-        db.approve_order(order_id, update.effective_user.id)
-        expires = db.activate_subscription(user_id, plan["id"], order_id, duration, bot_name)
-        await update.message.reply_text(
-            f"✅ <b>Subscription activated!</b>\n\n"
-            f"👤 User ID: <code>{user_id}</code>\n"
-            f"🤖 Bot Name: <b>{bot_name}</b>\n"
-            f"📋 Plan: <b>{plan['name']}</b>\n"
-            f"⏱ Duration: {duration} days\n"
-            f"⏰ Expires: {expires.strftime('%d-%m-%Y %H:%M')} IST\n"
-            f"🆔 Order: <code>{order_id}</code>",
-            parse_mode=HTML,
-            reply_markup=main_kb(update.effective_user.id)
-        )
-        try:
-            await ctx.bot.send_message(
-                user_id,
-                f"✅ <b>Subscription Activated!</b>\n\n"
-                f"🤖 Bot Name: <b>{bot_name}</b>\n"
-                f"📋 Plan: <b>{plan['name']}</b>\n"
-                f"⏰ Expires: {expires.strftime('%d-%m-%Y %H:%M')} IST\n"
-                f"⌛ Duration: {duration} days\n\n"
-                f"🔗 Use /invites to get your access links!\n"
-                f"📞 Support: {config.SUPPORT_USERNAME}",
-                parse_mode=HTML
-            )
-        except Exception as e:
-            logger.warning(f"Could not notify user {user_id}: {e}")
-            await update.message.reply_text(
-                f"⚠️ Subscription activated but could not notify user <code>{user_id}</code> "
-                f"(they may not have started the bot yet).",
-                parse_mode=HTML
-            )
-    except ValueError:
-        await update.message.reply_text(
-            "❌ Invalid input. USER_ID, PLAN_NUMBER and DURATION_DAYS must be numbers."
-        )
-        return ADMIN_ADDUSER_DETAILS
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}")
-        return ADMIN_ADDUSER_DETAILS
-    return ConversationHandler.END
 
 
 # ── Main ──────────────────────────────────────────────────────
@@ -925,10 +958,17 @@ def main():
     buy_conv = ConversationHandler(
         entry_points=[
             CommandHandler("buy", cmd_buy),
-            CallbackQueryHandler(cb_buy_plan, pattern=r"^buy_\d+$"),
+            MessageHandler(filters.Regex("^🛍 Buy Subscription$"), cmd_buy),
         ],
         states={
-            SELECTING_PLAN:    [CallbackQueryHandler(cb_buy_plan, pattern=r"^buy_\d+$")],
+            SELECTING_CATEGORY: [
+                CallbackQueryHandler(cb_category,    pattern="^cat_"),
+            ],
+            SELECTING_PLAN: [
+                CallbackQueryHandler(cb_inline_plan, pattern="^iplan_"),
+                CallbackQueryHandler(cb_buy_back,    pattern="^buy_back$"),
+                CallbackQueryHandler(cb_category,    pattern="^cat_"),
+            ],
             SELECTING_PAYMENT: [
                 CallbackQueryHandler(cb_pay_qr,    pattern="^pay_qr$"),
                 CallbackQueryHandler(cb_pay_upi,   pattern="^pay_upi$"),
@@ -994,13 +1034,12 @@ def main():
     )
 
     app.add_handler(buy_conv)
-    app.add_handler(adduser_conv)
     app.add_handler(addplan_conv)
     app.add_handler(broadcast_conv)
     app.add_handler(reject_conv)
+    app.add_handler(adduser_conv)
 
     app.add_handler(CommandHandler("start",   cmd_start))
-    app.add_handler(CommandHandler("plans",   cmd_plans))
     app.add_handler(CommandHandler("myplan",  cmd_myplan))
     app.add_handler(CommandHandler("status",  cmd_status))
     app.add_handler(CommandHandler("invites", cmd_invites))
