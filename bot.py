@@ -33,7 +33,8 @@ logger = logging.getLogger(__name__)
     ADMIN_ADD_PLAN,
     ADMIN_BROADCAST,
     ADMIN_REJECT_REASON,
-) = range(7)
+    ADMIN_ADDUSER_DETAILS,
+) = range(8)
 
 HTML = ParseMode.HTML
 
@@ -342,8 +343,10 @@ async def cmd_myplan(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     text = "📋 <b>Your Subscriptions:</b>\n\n"
     for s in subs:
         exp = datetime.fromisoformat(s["expires_at"])
+        bot_name = s.get("bot_name", "") or ""
         text += (
             f"🔗 <b>{s['plan_name']}</b> - 🟢 Active\n"
+            f"   🤖 Bot Name: <b>{bot_name if bot_name else '—'}</b>\n"
             f"   📝 Category: {s['category']}\n"
             f"   🔧 Service: {s['services']}\n"
             f"   📅 Current Purchase: {s['duration']} days\n"
@@ -505,8 +508,10 @@ async def show_subs(query):
         return
     text = f"🔔 <b>Active Subscriptions: {len(subs)}</b>\n\n"
     for s in subs[:15]:
+        bot_name = s.get("bot_name", "") or ""
         text += (
             f"• <b>{s['plan_name']}</b> - {s['full_name']}\n"
+            f"   🤖 Bot: {bot_name if bot_name else '—'}\n"
             f"   ⏰ {s['expires_at'][:16]} | ⌛ {remaining_text(s['expires_at'])}\n\n"
         )
     if len(subs) > 15:
@@ -810,6 +815,103 @@ async def check_expiry(ctx: ContextTypes.DEFAULT_TYPE):
             logger.warning(f"Expired notify failed: {e2}")
 
 
+
+# ── /adduser (Admin: manually activate subscription) ─────────
+
+async def cmd_adduser(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Admins only!")
+        return ConversationHandler.END
+    plans = db.get_plans()
+    if not plans:
+        await update.message.reply_text("❌ No plans available.")
+        return ConversationHandler.END
+    text = (
+        "👤 <b>Add User Subscription</b>\n\n"
+        "Send details in this format:\n\n"
+        "<code>USER_ID | PLAN_NUMBER | DURATION_DAYS | BOT_NAME</code>\n\n"
+        "Available Plans:\n"
+    )
+    for i, p in enumerate(plans, 1):
+        text += f"{i}. {p['name']} - ₹{p['price']:.0f} / {p['duration']}d\n"
+    text += (
+        "\nExample:\n"
+        "<code>7246154050 | 2 | 30 | @MyAwesomeBot</code>\n\n"
+        "📝 BOT_NAME = the Telegram bot username the user purchased hosting for.\n\n"
+        "Send /cancel to cancel."
+    )
+    ctx.user_data["adduser_plans"] = plans
+    await update.message.reply_text(text, parse_mode=HTML)
+    return ADMIN_ADDUSER_DETAILS
+
+
+async def cmd_adduser_receive(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return ConversationHandler.END
+    parts = [p.strip() for p in update.message.text.split("|")]
+    if len(parts) != 4:
+        await update.message.reply_text(
+            "❌ Invalid format. Use:\n"
+            "<code>USER_ID | PLAN_NUMBER | DURATION_DAYS | BOT_NAME</code>\n\n"
+            "Example: <code>7246154050 | 2 | 30 | @MyAwesomeBot</code>",
+            parse_mode=HTML
+        )
+        return ADMIN_ADDUSER_DETAILS
+    try:
+        user_id   = int(parts[0])
+        plan_num  = int(parts[1])
+        duration  = int(parts[2])
+        bot_name  = parts[3]
+        plans = ctx.user_data.get("adduser_plans", db.get_plans())
+        if plan_num < 1 or plan_num > len(plans):
+            await update.message.reply_text(f"❌ Plan number must be between 1 and {len(plans)}.")
+            return ADMIN_ADDUSER_DETAILS
+        plan = plans[plan_num - 1]
+        order_id = gen_order_id()
+        db.create_order(order_id, user_id, plan["id"], plan["price"])
+        db.approve_order(order_id, update.effective_user.id)
+        expires = db.activate_subscription(user_id, plan["id"], order_id, duration, bot_name)
+        await update.message.reply_text(
+            f"✅ <b>Subscription activated!</b>\n\n"
+            f"👤 User ID: <code>{user_id}</code>\n"
+            f"🤖 Bot Name: <b>{bot_name}</b>\n"
+            f"📋 Plan: <b>{plan['name']}</b>\n"
+            f"⏱ Duration: {duration} days\n"
+            f"⏰ Expires: {expires.strftime('%d-%m-%Y %H:%M')} IST\n"
+            f"🆔 Order: <code>{order_id}</code>",
+            parse_mode=HTML,
+            reply_markup=main_kb(update.effective_user.id)
+        )
+        try:
+            await ctx.bot.send_message(
+                user_id,
+                f"✅ <b>Subscription Activated!</b>\n\n"
+                f"🤖 Bot Name: <b>{bot_name}</b>\n"
+                f"📋 Plan: <b>{plan['name']}</b>\n"
+                f"⏰ Expires: {expires.strftime('%d-%m-%Y %H:%M')} IST\n"
+                f"⌛ Duration: {duration} days\n\n"
+                f"🔗 Use /invites to get your access links!\n"
+                f"📞 Support: {config.SUPPORT_USERNAME}",
+                parse_mode=HTML
+            )
+        except Exception as e:
+            logger.warning(f"Could not notify user {user_id}: {e}")
+            await update.message.reply_text(
+                f"⚠️ Subscription activated but could not notify user <code>{user_id}</code> "
+                f"(they may not have started the bot yet).",
+                parse_mode=HTML
+            )
+    except ValueError:
+        await update.message.reply_text(
+            "❌ Invalid input. USER_ID, PLAN_NUMBER and DURATION_DAYS must be numbers."
+        )
+        return ADMIN_ADDUSER_DETAILS
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
+        return ADMIN_ADDUSER_DETAILS
+    return ConversationHandler.END
+
+
 # ── Main ──────────────────────────────────────────────────────
 
 def main():
@@ -868,7 +970,17 @@ def main():
         per_message=False,
     )
 
+    adduser_conv = ConversationHandler(
+        entry_points=[CommandHandler("adduser", cmd_adduser)],
+        states={
+            ADMIN_ADDUSER_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, cmd_adduser_receive)],
+        },
+        fallbacks=[CommandHandler("cancel", cmd_cancel)],
+        per_message=False,
+    )
+
     app.add_handler(buy_conv)
+    app.add_handler(adduser_conv)
     app.add_handler(addplan_conv)
     app.add_handler(broadcast_conv)
     app.add_handler(reject_conv)
@@ -879,16 +991,10 @@ def main():
     app.add_handler(CommandHandler("status",  cmd_status))
     app.add_handler(CommandHandler("invites", cmd_invites))
     app.add_handler(CommandHandler("admin",   cmd_admin))
+    app.add_handler(CommandHandler("adduser", cmd_adduser))
     app.add_handler(CommandHandler("cancel",  cmd_cancel))
 
     app.add_handler(CallbackQueryHandler(callback_router))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    app.job_queue.run_repeating(check_expiry, interval=1800, first=60)
-
-    logger.info("🤖 Bot started!")
-    app.run_polling()
-
-
-if __name__ == "__main__":
-    main()
+    app.j
