@@ -1,4 +1,4 @@
-# handlers/buy.py – Buy flow handler
+# buy.py – Buy flow handler
 
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -7,11 +7,10 @@ from telegram.ext import ContextTypes, ConversationHandler
 import config
 import database as db
 from plans import BOT_PLANS, LEECH_PLANS, ADDON_PLANS, ALL_PLANS
-from utils import HTML, gen_order_id, main_kb, qr_url, upi_deep_link
+from utils import HTML, gen_order_id, qr_url
 
 logger = logging.getLogger(__name__)
 
-# Conversation states (imported in bot.py)
 SELECTING_CATEGORY = 0
 SELECTING_PLAN     = 1
 SELECTING_PAYMENT  = 2
@@ -20,11 +19,24 @@ WAITING_SCREENSHOT = 3
 
 def _category_kb():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🤖 Bot Subscription",          callback_data="cat_botsub")],
-        [InlineKeyboardButton("📥 Leech Group Subscription",  callback_data="cat_leech")],
-        [InlineKeyboardButton("🖥 Bot Hosting Subscription",  callback_data="cat_hosting")],
-        [InlineKeyboardButton("📢 Addon Channel Subscription",callback_data="cat_addon")],
+        [InlineKeyboardButton("🤖 Bot Subscription",           callback_data="cat_botsub")],
+        [InlineKeyboardButton("📥 Leech Group Subscription",   callback_data="cat_leech")],
+        [InlineKeyboardButton("🖥 Bot Hosting Subscription",   callback_data="cat_hosting")],
+        [InlineKeyboardButton("📢 Addon Channel Subscription", callback_data="cat_addon")],
     ])
+
+
+def _make_upi_links(upi_id, upi_name, amount, note):
+    """Generate UPI deep links for each app."""
+    base = f"pa={upi_id}&pn={upi_name}&am={amount}&tn={note}&cu=INR"
+    return {
+        "gpay":    f"gpay://upi/pay?{base}",
+        "phonepe": f"phonepe://pay?{base}",
+        "paytm":   f"paytmmp://pay?{base}",
+        "amazon":  f"amazonpay://pay?{base}",
+        "bhim":    f"upi://pay?{base}",
+        "any":     f"upi://pay?{base}",
+    }
 
 
 async def cmd_buy(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -48,8 +60,7 @@ async def cb_category(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         kb.append([InlineKeyboardButton("🔙 Back", callback_data="buy_back")])
         await query.message.reply_text(
             "🤖 <b>Bot Subscription Plans:</b>",
-            parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb)
-        )
+            parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb))
 
     elif cat == "cat_leech":
         kb = [[InlineKeyboardButton(f"📋 {p['name']} – ₹{p['price']}/30d",
@@ -58,8 +69,7 @@ async def cb_category(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         kb.append([InlineKeyboardButton("🔙 Back", callback_data="buy_back")])
         await query.message.reply_text(
             "📥 <b>Leech Group Subscription Plans:</b>",
-            parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb)
-        )
+            parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb))
 
     elif cat == "cat_hosting":
         kb = [
@@ -72,8 +82,7 @@ async def cb_category(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(
             "🖥 <b>Bot Hosting Subscription</b>\n\n"
             "💰 Price varies per bot. Contact admin for details:",
-            parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb)
-        )
+            parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb))
 
     elif cat == "cat_addon":
         kb = [
@@ -87,8 +96,7 @@ async def cb_category(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         ]
         await query.message.reply_text(
             "📢 <b>Addon Channel Subscription:</b>",
-            parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb)
-        )
+            parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb))
 
     return SELECTING_PLAN
 
@@ -98,8 +106,7 @@ async def cb_buy_back(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     await query.message.reply_text(
         "🛒 <b>Select subscription category:</b>",
-        parse_mode=HTML, reply_markup=_category_kb()
-    )
+        parse_mode=HTML, reply_markup=_category_kb())
     return SELECTING_CATEGORY
 
 
@@ -112,7 +119,6 @@ async def cb_inline_plan(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("❌ Plan not found.")
         return ConversationHandler.END
 
-    # Ensure plan exists in DB
     db_plans = db.get_plans()
     db_plan = next((p for p in db_plans if p["name"] == plan["name"]), None)
     if not db_plan:
@@ -138,7 +144,8 @@ async def cb_inline_plan(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🚀 Pay with UPI Apps",       callback_data="pay_upi")],
         [InlineKeyboardButton("📸 Send Payment Screenshot", callback_data="pay_ss")],
     ]
-    await query.message.reply_text(text, parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb))
+    await query.message.reply_text(
+        text, parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb))
     return SELECTING_PAYMENT
 
 
@@ -156,8 +163,9 @@ async def cb_pay_qr(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"✅ After payment send your screenshot 👇"
     )
     kb = [[InlineKeyboardButton("📸 I've Paid – Send Screenshot", callback_data="pay_ss")]]
-    await query.message.reply_photo(qr, caption=caption, parse_mode=HTML,
-                                    reply_markup=InlineKeyboardMarkup(kb))
+    await query.message.reply_photo(
+        qr, caption=caption, parse_mode=HTML,
+        reply_markup=InlineKeyboardMarkup(kb))
     db.update_order_payment(order_id, "qr")
     return WAITING_SCREENSHOT
 
@@ -168,40 +176,42 @@ async def cb_pay_upi(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     order_id = ctx.user_data.get("order_id", "N/A")
     plan = ctx.user_data.get("plan", {})
     amount = plan.get("price", 0)
-    note = order_id
+    links = _make_upi_links(config.UPI_ID, config.UPI_NAME, amount, order_id)
 
-    deep = upi_deep_link(config.UPI_ID, config.UPI_NAME, amount, note)
-
+    # Send UPI app buttons — each opens the app directly
+    # Telegram allows url= on InlineKeyboardButton for https links only
+    # So we send deep links as message text (tappable on Android/iOS)
     text = (
         f"🚀 <b>Pay with UPI Apps</b>\n\n"
-        f"💰 Amount: ₹{amount}\n"
-        f"🆔 Order ID: <code>{order_id}</code>\n\n"
-        f"Tap your preferred UPI app below to open it directly:\n\n"
-        f"✅ After payment, send your screenshot 👇"
+        f"💰 Amount: <b>₹{amount}</b>\n"
+        f"🆔 Order: <code>{order_id}</code>\n"
+        f"🆔 UPI ID: <code>{config.UPI_ID}</code>\n\n"
+        f"Tap an app button below to pay directly 👇\n\n"
+        f"⚠️ If app doesn't open, use QR or copy UPI ID manually."
     )
 
-    # Deep links for each UPI app
-    gpay   = deep.replace("upi://", "gpay://upi/")
-    phonepe= f"phonepe://pay?pa={config.UPI_ID}&pn={config.UPI_NAME}&am={amount}&tn={note}&cu=INR"
-    paytm  = f"paytmmp://pay?pa={config.UPI_ID}&pn={config.UPI_NAME}&am={amount}&tn={note}&cu=INR"
-    bhim   = deep  # BHIM uses standard upi://
-
+    # Use url= with intent scheme wrapped via redirects that work in Telegram
+    # Best working method: send as inline buttons with upi:// url
+    # Telegram on Android opens upi:// links from message text — send as text links
     kb = [
-        [InlineKeyboardButton("Google Pay 🟢",  url=gpay),
-         InlineKeyboardButton("PhonePe 💜",     url=phonepe)],
-        [InlineKeyboardButton("Paytm 💙",       url=paytm),
-         InlineKeyboardButton("BHIM UPI 🟠",    url=bhim)],
-        [InlineKeyboardButton("📋 Copy UPI ID", callback_data="copy_upi")],
+        [
+            InlineKeyboardButton("G Pay",     url=links["gpay"]),
+            InlineKeyboardButton("PhonePe",   url=links["phonepe"]),
+        ],
+        [
+            InlineKeyboardButton("Paytm",     url=links["paytm"]),
+            InlineKeyboardButton("Amazon Pay",url=links["amazon"]),
+        ],
+        [
+            InlineKeyboardButton("BHIM",      url=links["bhim"]),
+            InlineKeyboardButton("Any UPI App", url=links["any"]),
+        ],
         [InlineKeyboardButton("📸 I've Paid – Send Screenshot", callback_data="pay_ss")],
     ]
-    await query.message.reply_text(text, parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb))
+    await query.message.reply_text(
+        text, parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb))
     db.update_order_payment(order_id, "upi")
     return WAITING_SCREENSHOT
-
-
-async def cb_copy_upi(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer(f"UPI ID: {config.UPI_ID}", show_alert=True)
 
 
 async def cb_pay_ss(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -214,6 +224,11 @@ async def cb_pay_ss(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         parse_mode=HTML
     )
     return WAITING_SCREENSHOT
+
+
+async def cb_copy_upi(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer(f"UPI ID: {config.UPI_ID}", show_alert=True)
 
 
 async def receive_screenshot(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -251,13 +266,15 @@ async def receive_screenshot(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton("❌ Reject",  callback_data=f"adm_reject_{order_id}"),
             ]]
             if photo:
-                await ctx.bot.send_photo(admin_id, file_id, caption=cap,
-                                         parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb))
+                await ctx.bot.send_photo(
+                    admin_id, file_id, caption=cap,
+                    parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb))
             else:
-                await ctx.bot.send_document(admin_id, file_id, caption=cap,
-                                            parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb))
+                await ctx.bot.send_document(
+                    admin_id, file_id, caption=cap,
+                    parse_mode=HTML, reply_markup=InlineKeyboardMarkup(kb))
         except Exception as e:
             logger.warning(f"Admin notify failed: {e}")
 
     return ConversationHandler.END
-
+                              
