@@ -141,7 +141,7 @@ async def cb_inline_plan(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
     from urllib.parse import quote
     pay_url = (
-        f"https://askbotzpayment.vercel.app/"
+        f"{config.PAYMENT_URL}"
         f"?order={order_id}"
         f"&amount={plan['price']}"
         f"&name={quote(plan['name'])}"
@@ -278,4 +278,4 @@ async def receive_screenshot(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             logger.warning(f"Admin notify failed: {e}")
 
     return ConversationHandler.END
-    
+        
