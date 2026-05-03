@@ -141,7 +141,7 @@ async def cb_inline_plan(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
     from urllib.parse import quote
     pay_url = (
-        f"https://askpayments.vercel.app/"
+        f"https://askbotzpayment.vercel.app/"
         f"?order={order_id}"
         f"&amount={plan['price']}"
         f"&name={quote(plan['name'])}"
