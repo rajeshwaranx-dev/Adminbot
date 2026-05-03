@@ -22,3 +22,7 @@ CHANNEL_USERNAME = "@yourchannel"
 # If enabled, bot checks UPI transaction ID automatically
 AUTO_VERIFY = False
 
+
+# Payment page URL — change this if you move hosting
+PAYMENT_URL = "https://askbotzpayments.vercel.app/"
+
