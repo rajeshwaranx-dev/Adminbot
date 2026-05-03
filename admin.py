@@ -500,4 +500,67 @@ async def cmd_sendpayment_receive(update: Update, ctx: ContextTypes.DEFAULT_TYPE
     # Use plan_id=0 for custom payments — store in orders with plan_id=1 (first plan)
     all_plans = db.get_plans()
     plan_id = all_plans[0]["id"] if all_plans else 1
-    db.create_order(order_id, user_id, plan_id, amount
+    db.create_order(order_id, user_id, plan_id, amount)
+
+    # Build payment URL
+    from urllib.parse import quote
+    pay_url = (
+        f"{config.PAYMENT_URL}"
+        f"?order={order_id}"
+        f"&amount={int(amount)}"
+        f"&name={quote(reason)}"
+        f"&duration=custom"
+        f"&upi={quote(config.UPI_ID)}"
+        f"&upiname={quote(config.UPI_NAME)}"
+    )
+
+    kb = [[
+        InlineKeyboardButton("🚀 Pay Now", url=pay_url),
+        InlineKeyboardButton("📸 Send Screenshot", callback_data="custom_pay_ss"),
+    ]]
+
+    try:
+        await ctx.bot.send_message(
+            user_id,
+            f"💸 <b>Payment Request</b>\n\n"
+            f"📋 Reason: <b>{reason}</b>\n"
+            f"💰 Amount: <b>₹{int(amount)}</b>\n"
+            f"🆔 Order ID: <code>{order_id}</code>\n\n"
+            f"Tap <b>Pay Now</b> to complete payment.\n"
+            f"After paying, tap <b>Send Screenshot</b> to confirm.\n\n"
+            f"📞 Support: {config.SUPPORT_USERNAME}",
+            parse_mode=HTML,
+            reply_markup=InlineKeyboardMarkup(kb)
+        )
+        await update.message.reply_text(
+            f"✅ <b>Payment request sent!</b>\n\n"
+            f"👤 User: <code>{user_id}</code>\n"
+            f"💰 Amount: ₹{int(amount)}\n"
+            f"📋 Reason: {reason}\n"
+            f"🆔 Order: <code>{order_id}</code>",
+            parse_mode=HTML,
+            reply_markup=main_kb(update.effective_user.id, config.ADMIN_IDS)
+        )
+    except Exception as e:
+        await update.message.reply_text(
+            f"❌ Could not send to user <code>{user_id}</code>\n"
+            f"Error: {e}\n\n"
+            f"Make sure the user has started the bot.",
+            parse_mode=HTML
+        )
+        return ADMIN_SENDPAYMENT
+
+    return ConversationHandler.END
+
+
+async def cb_custom_pay_ss(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Handle screenshot button from custom payment request."""
+    query = update.callback_query
+    await query.answer()
+    await query.message.reply_text(
+        "📸 <b>Send your payment screenshot now:</b>\n\n"
+        "Admin will verify and confirm shortly.\n\n"
+        f"📞 Support: {config.SUPPORT_USERNAME}",
+        parse_mode=HTML
+    )
+    
