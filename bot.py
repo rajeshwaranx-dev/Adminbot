@@ -29,7 +29,8 @@ from admin import (
     adm_broadcast_start, adm_broadcast_send,
     adm_reject_start, adm_reject_do,
     cmd_adduser, cmd_adduser_receive,
-    ADMIN_ADD_PLAN, ADMIN_BROADCAST, ADMIN_REJECT_REASON, ADMIN_ADDUSER,
+    cmd_sendpayment, cmd_sendpayment_receive, cb_custom_pay_ss,
+    ADMIN_ADD_PLAN, ADMIN_BROADCAST, ADMIN_REJECT_REASON, ADMIN_ADDUSER, ADMIN_SENDPAYMENT,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -146,11 +147,21 @@ def main():
         per_chat=True, per_user=True, per_message=False,
     )
 
+    sendpayment_conv = ConversationHandler(
+        entry_points=[CommandHandler("sendpayment", cmd_sendpayment)],
+        states={
+            ADMIN_SENDPAYMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, cmd_sendpayment_receive)],
+        },
+        fallbacks=[CommandHandler("cancel", cmd_cancel)],
+        per_chat=True, per_user=True, per_message=False,
+    )
+
     app.add_handler(buy_conv)
     app.add_handler(addplan_conv)
     app.add_handler(broadcast_conv)
     app.add_handler(reject_conv)
     app.add_handler(adduser_conv)
+    app.add_handler(sendpayment_conv)
 
     app.add_handler(CommandHandler("start",   cmd_start))
     app.add_handler(CommandHandler("myplan",  cmd_myplan))
@@ -158,9 +169,11 @@ def main():
     app.add_handler(CommandHandler("invites", cmd_invites))
     app.add_handler(CommandHandler("admin",   cmd_admin))
     app.add_handler(CommandHandler("adduser", cmd_adduser))
+    app.add_handler(CommandHandler("sendpayment", cmd_sendpayment))
     app.add_handler(CommandHandler("cancel",  cmd_cancel))
 
     app.add_handler(CallbackQueryHandler(cb_copy_upi, pattern="^copy_upi$"))
+    app.add_handler(CallbackQueryHandler(cb_custom_pay_ss, pattern="^custom_pay_ss$"))
     app.add_handler(CallbackQueryHandler(callback_router))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
@@ -172,4 +185,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
+        
